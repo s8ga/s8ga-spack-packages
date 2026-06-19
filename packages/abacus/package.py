@@ -41,8 +41,20 @@ class Abacus(CMakePackage):
     # in the stage so COMMIT_INFO=ON can `git describe` for `abacus --version`,
     # which matters for bug tracking. LTS tags carry a "-lts" suffix to
     # distinguish them from any future regular 3.10.x on the develop line.
+    # develop line (new build system), newest first
+    version("3.11.0-beta.4", tag="v3.11.0-beta4",
+            commit="7cb8da759b96b6508515515cffd7dcfea9596fb6")
     version("3.9.0.27", tag="v3.9.0.27",
             commit="3a996b6eb50af8c2c07bc3ff39c67e6164d56faf")
+    version("3.9.0.25", tag="v3.9.0.25",
+            commit="2087308d9d09d57d0c6a9fe7c6dbbeb075a5dc40")
+    version("3.9.0.20", tag="v3.9.0.20",
+            commit="f1c5f1b47bb0209182a0da65ca6101a017844880")
+    version("3.9.0.15", tag="v3.9.0.15",
+            commit="b062b0758d3636799dc83fe6ddf480c412542c63")
+    version("3.9.0.10", tag="v3.9.0.10",
+            commit="a94c62d265d825f39a8d6b3b52c35e8ec68d887d")
+    # LTS line (old build system)
     version("3.10.1-lts", tag="v3.10.1",
             commit="f71921fe848659deac8db319cd4311b55b5ad480")
     version("3.10.0-lts", tag="LTSv3.10.0",
@@ -195,9 +207,14 @@ class Abacus(CMakePackage):
     # NEP (self-built nep-cpu package; FindNEP expects <prefix>/{include,lib})
     depends_on("nep-cpu", when="+nep")
 
-    # DFT-D4. ABACUS is CXX-only and links the prebuilt dftd4 library; the
-    # Fortran build of dftd4 itself is handled by the dftd4 package.
-    depends_on("dftd4@4.2.0:", when="+dftd4")
+    # DFT-D4. ABACUS is CXX-only but ENABLE_DFTD4=ON calls
+    # enable_language(Fortran) in CMakeLists.txt (beta.4+), so we
+    # need the Fortran compiler even though we only link dftd4.
+    # Force build_system=cmake: dftd4's meson build does not produce
+    # dftd4Config.cmake, which ABACUS's find_package(dftd4) requires
+    # (see PR #7380).
+    depends_on("fortran", type="build", when="+dftd4")
+    depends_on("dftd4@4.2.0: build_system=cmake", when="+dftd4")
 
     # OpenMP forward propagation: pick threaded BLAS/FFTW/MKL providers
     with when("+openmp"):
@@ -209,6 +226,9 @@ class Abacus(CMakePackage):
             "intel-oneapi-mkl threads=openmp",
             when="^[virtuals=blas,lapack,scalapack,fftw-api] intel-oneapi-mkl",
         )
+
+    # Single-precision FFTW: ENABLE_FLOAT_FFTW links FFTW3::FFTW3_FLOAT.
+    depends_on("fftw precision=float", when="+float-fftw ^[virtuals=fftw-api] fftw")
 
     # OpenMP reverse propagation: ensure elpa is built ~openmp when ABACUS is
     with when("~openmp"):
@@ -244,6 +264,10 @@ class Abacus(CMakePackage):
     # signature mismatch) fixed in PR #6689 on develop, but not cherry-picked
     # to the LTS branch. See issue #6684.
     patch("lts-pexsi-compile.patch", when="@3.10 +pexsi")
+
+    # v3.9.0.10 compile fix: uint64_t used without #include <cstdint>
+    # (fixed in later develop versions)
+    patch("v3.9.0.10-cstdint.patch", when="@3.9.0.10")
 
     # ------------------------------------------------------------------ #
     #  CMake arguments                                                   #
