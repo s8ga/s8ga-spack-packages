@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
 import glob
+import os
 
 from spack_repo.builtin.build_systems.cmake import CMakePackage
 from spack.package import *
@@ -32,6 +33,9 @@ class Abacus(CMakePackage):
     list_url = "https://github.com/deepmodeling/abacus-develop/releases"
 
     license("LGPL-3.0-or-later")
+
+    # Build-time sanity check: verify the binary exists after install.
+    sanity_check_is_file = [join_path("bin", "abacus")]
 
     # ------------------------------------------------------------------ #
     #  Versions                                                          #
@@ -161,6 +165,30 @@ class Abacus(CMakePackage):
         description="Enable DFT-D4 dispersion correction",
     )
 
+    # Build unit tests + install test data for container regression testing.
+    # Uses a bundled GoogleTest resource (no spack googletest dependency).
+    variant(
+        "tests",
+        default=False,
+        description="Build unit tests (GoogleTest) and install test data",
+    )
+
+    # ------------------------------------------------------------------ #
+    #  Resources                                                         #
+    # ------------------------------------------------------------------ #
+
+    # GoogleTest source, staged to third_party/googletest/. FetchContent
+    # picks it up via FETCHCONTENT_SOURCE_DIR_GOOGLETEST (see cmake_args),
+    # so CMake never hits the network. Version pinned to v1.14.0.
+    resource(
+        name="googletest",
+        url="https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip",
+        sha256="1f357c27ca988c3f7c6b4bf68a9395005ac6761f034046e9dde0896e3aba00e4",
+        destination="third_party",
+        placement="googletest",
+        when="+tests",
+    )
+
     # ------------------------------------------------------------------ #
     #  Dependencies                                                      #
     # ------------------------------------------------------------------ #
@@ -268,6 +296,34 @@ class Abacus(CMakePackage):
     # v3.9.0.10 compile fix: uint64_t used without #include <cstdint>
     # (fixed in later develop versions)
     patch("v3.9.0.10-cstdint.patch", when="@3.9.0.10")
+
+    # ------------------------------------------------------------------ #
+    #  Patch (+tests: rewrite NAO test deep paths)                       #
+    # ------------------------------------------------------------------ #
+
+    def patch(self):
+        """Apply version-specific patches and +tests source rewrites."""
+        if "+tests" in self.spec:
+            # Rewrite deep relative paths for flat install layout.
+            # Patterns: ../../../../../tests/PP_ORB/ and ../../../../../source/...
+            test_cpp_dirs = [
+                join_path(self.stage.source_path, "source", "*", "test"),
+                join_path(self.stage.source_path, "source", "*", "*", "test"),
+            ]
+            for pattern in test_cpp_dirs:
+                for cpp in glob.glob(join_path(pattern, "*.cpp")):
+                    # tests/PP_ORB/ deep paths (4-5 levels)
+                    filter_file(
+                        r'"(\./)?(\.\./){4,5}tests/PP_ORB/',
+                        '"./PP_ORB/',
+                        cpp,
+                    )
+                    # source/.../test/ deep paths (5 levels, for test-specific data)
+                    filter_file(
+                        r'"(\.\./){5}source/source_basis/module_nao/test/',
+                        '"./',
+                        cpp,
+                    )
 
     # ------------------------------------------------------------------ #
     #  CMake arguments                                                   #
@@ -390,6 +446,18 @@ class Abacus(CMakePackage):
             if spec.satisfies("@3.11.0-beta.4:"):
                 args.append(self.define_from_variant("ENABLE_DFTD4", "dftd4"))
 
+        # Unit test support (+tests variant). GoogleTest source is staged
+        # by resource() to third_party/googletest/. We tell CMake's
+        # FetchContent to use that local copy instead of downloading.
+        if "+tests" in spec:
+            args.append(self.define("BUILD_TESTING", True))
+            args.append(
+                self.define(
+                    "FETCHCONTENT_SOURCE_DIR_GOOGLETEST",
+                    join_path(self.stage.source_path, "third_party", "googletest"),
+                )
+            )
+
         return args
 
     def _add_torch_args(self, args, spec):
@@ -419,3 +487,92 @@ class Abacus(CMakePackage):
                 "Expected pattern: {0}".format(pattern)
             )
         args.append(self.define("Torch_DIR", matches[0]))
+
+    # ------------------------------------------------------------------ #
+    #  Test artifact installation (+tests variant)                       #
+    # ------------------------------------------------------------------ #
+
+    @run_after("install")
+    def install_test_artifacts(self):
+        """Collect all test artifacts into one flat directory.
+
+        Everything goes to ``share/abacus/tests/``:
+          - MODULE_* unit-test executables (from build/tests/)
+          - Integration test data (tests/: INPUT/STRU/KPT/PP_ORB/Autotest.sh)
+          - Unit test data (source/*/test/data, *.dat, support/)
+        Run unit tests with: ``cd share/abacus/tests/ && ./MODULE_*``
+        Run integration tests with: ``cd share/abacus/tests/01_PW/ &&
+        bash ../integrate/Autotest.sh -a abacus -n 4``
+        """
+        if "+tests" not in self.spec:
+            return
+
+        dst = join_path(self.prefix.share, "abacus", "tests")
+        src = self.stage.source_path
+
+        # 1. Integration test data (INPUT/STRU/KPT/PP_ORB/Autotest.sh)
+        install_tree(join_path(src, "tests"), dst)
+
+        # 2. MODULE_* compiled unit-test executables
+        build_tests = join_path(self.build_directory, "tests")
+        if os.path.isdir(build_tests):
+            install_tree(build_tests, dst)
+
+        # 3. Unit test data: source_base/test/data/ → dst/data/
+        for d in glob.glob(join_path(src, "source", "*", "test", "data")):
+            install_tree(d, join_path(dst, "data"))
+
+        # 4. Unit test data: source_hsolver/test/*.dat → dst/
+        for f in glob.glob(join_path(src, "source", "*", "test", "*.dat")):
+            install(f, dst)
+
+        # 5. Unit test data: support/ — merge all support/ dirs into one
+        mkdirp(join_path(dst, "support"))
+        for sd in glob.glob(join_path(src, "source", "*", "test", "support")) + \
+                  glob.glob(join_path(src, "source", "*", "*", "test", "support")):
+            for item in os.listdir(sd):
+                src_item = join_path(sd, item)
+                dst_item = join_path(dst, "support", item)
+                if os.path.lexists(dst_item):
+                    continue
+                if os.path.isdir(src_item):
+                    install_tree(src_item, dst_item)
+                else:
+                    install(src_item, join_path(dst, "support"))
+
+        # 6. Test-specific data files and directories
+        # Copy ALL subdirectories from each module's test/ dir (lcao_H2O/, GaAs/, etc.)
+        for test_dir in glob.glob(join_path(src, "source", "*", "test")) + \
+                        glob.glob(join_path(src, "source", "*", "*", "test")):
+            for item in os.listdir(test_dir):
+                item_path = join_path(test_dir, item)
+                if os.path.isdir(item_path):
+                    if item in ("data", "support"):
+                        continue  # already handled above
+                    dst_item = join_path(dst, item)
+                    if not os.path.isdir(dst_item):
+                        install_tree(item_path, dst_item)
+                elif item.endswith((".txt", ".orb", ".upf", ".UPF", ".html", ".dat", ".pb")) \
+                        or "." not in item:
+                    # Copy data files and extensionless files (e.g., INPUTs)
+                    dst_file = join_path(dst, item)
+                    if not os.path.exists(dst_file):
+                        install(item_path, dst_file)
+
+    # ------------------------------------------------------------------ #
+    #  Stand-alone smoke tests (spack test run)                          #
+    # ------------------------------------------------------------------ #
+
+    def test_version(self):
+        """ensure abacus --version works"""
+        abacus = which(self.prefix.bin.abacus)
+        out = abacus("--version", output=str.split, error=str.split)
+        assert "ABACUS" in out
+
+    def test_info(self):
+        """ensure abacus --info shows build details"""
+        if self.spec.satisfies("@3.10"):
+            raise SkipTest("--info not available on LTS")
+        abacus = which(self.prefix.bin.abacus)
+        out = abacus("--info", output=str.split, error=str.split)
+        assert "Compiler" in out
