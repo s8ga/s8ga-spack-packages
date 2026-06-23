@@ -297,6 +297,29 @@ class Abacus(CMakePackage):
     # (fixed in later develop versions)
     patch("v3.9.0.10-cstdint.patch", when="@3.9.0.10")
 
+    # Fix PexsiPrepare non-copyable for GoogleTest parameterized tests.
+    # Root cause: Parallel_2D declares move ops (= default) which implicitly
+    # deletes the copy constructor (C++11 §12.8). PexsiPrepare contains
+    # Parallel_Orbitals (inherits Parallel_2D) → non-copyable.
+    #
+    # Group A: source_hsolver layout — also needs missing scalapack_connector.h include
+    patch(
+        "pexsi-tests-copyable-3.9.patch",
+        sha256="bd51494828161a5dbb088c3d6cd7449d3fa009f604aaa171081f718c39f6d68c",
+        when="@3.9.0.10:3.9.0.27 +pexsi +tests",
+    )
+    patch(
+        "pexsi-tests-copyable-3.9.patch",
+        sha256="bd51494828161a5dbb088c3d6cd7449d3fa009f604aaa171081f718c39f6d68c",
+        when="@3.11.0-beta.4 +pexsi +tests",
+    )
+    # Group B: module_hsolver layout — copy ctor only, no extra include needed
+    patch(
+        "pexsi-tests-copyable-3.10.patch",
+        sha256="e49acbec9e633df4c010ce0dc8c8790acbfece31d4f3fbbe6f0c2afd2759ebfa",
+        when="@3.10 +pexsi +tests",
+    )
+
     # ------------------------------------------------------------------ #
     #  Patch (+tests: rewrite NAO test deep paths)                       #
     # ------------------------------------------------------------------ #
