@@ -1,2 +1,13 @@
 __pycache__/
 *.pyc
+
+# ABACUS test outputs / temporary files
+*.log
+*.tmp
+*.cube
+*.cif
+OUT.*/
+test_dm_dir/
+test_hr_dir/
+wfc
+wfk*_pw.dat
