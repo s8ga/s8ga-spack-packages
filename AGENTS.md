@@ -122,6 +122,56 @@ NOT git clones). Total download ~11MB. Checks:
 `PexsiPrepare` non-copyable → GoogleTest `TestWithParam<T>` fails.
 Fix: explicit copy ctor copying all members except `po` (Parallel_Orbitals).
 
+## ABACUS Key Design Decisions
+
+### Version-variant mapping
+
+| Variant | Versions | CMake option |
+|---------|----------|-------------|
+| `+deepks` | `@3.10` (LTS) | `ENABLE_DEEPKS` |
+| `+mlalgo` | `@3.9.0.10:` (develop) | `ENABLE_MLALGO` |
+
+These are version-disjoint (upstream renamed the CMake option). Never enable both.
+
+### Dependency quirks
+
+- **py-torch**: constrained to `@2.1:2.4` (`torch::linalg` removed in 2.5). Needs `--deprecated` flag for `@2.4.1`.
+- **nep-cpu**: uses `src/` not `libs/` (NEP3 renamed to NEP in v1.4). Manual `ar libnep.a`.
+- **dftd4**: `build_system=cmake` required (meson default produces no cmake config; PR #7380).
+- **elpa**: variant gated on `when="+lcao+mpi"` (stronger than explicit `conflicts()`).
+- **GoogleTest**: via `resource()` not `depends_on()` (self-contained, offline, nnpack precedent).
+- **test path rewriting**: `filter_file` in `def patch()` (not `@run_before`) (spack convention).
+- **KML**: upstream stub (`FindKML.cmake` is TODO), variant exists but no `depends_on`.
+
+### Supported versions
+
+`3.10.0-lts`, `3.10.1-lts`, `3.9.0.10`, `3.9.0.15`, `3.9.0.20`, `3.9.0.25`, `3.9.0.27`, `3.11.0-beta.4`
+
+## Testing Infrastructure (4 layers)
+
+| Layer | What | Always runs? |
+|-------|------|:---:|
+| L1 | `sanity_check_is_file = [join_path("bin", "abacus")]` | Yes |
+| L2 | `test_version()` + `test_info()` smoke tests | Yes |
+| L3 | `+tests` variant: GoogleTest unit tests (resource gtest v1.14.0) | No (needs `+tests`) |
+| L4 | Autotest.sh integration tests (MPI, CASES_CPU.txt) | Manual |
+
+Test results: 3.9.0.27 = 235/235 pass, beta.4 = 238/239+1 skip (100%).
+
+## HPC Container Factory Integration
+
+This repo is consumed by HPC-Container-Factory envs:
+
+```
+HPC-Container-Factory/spack-envs/
+  abacus_opensource-3.10.1-force-avx512/   # LTS + force_avx512
+  abacus_opensource-3.9.0.27-force-avx512/ # develop + force_avx512
+```
+
+Each env's `env.yaml` registers repos via `custom_repos` with `path: repos`.
+Container envs use a combined `repos/` dir (single namespace `abacus-env`);
+our repo splits into `s8_custom_repo` + `s8_overrides` for cleaner maintenance.
+
 ## Conventions
 
 - spack v2.5 repo format: `api: v2.5` in repo.yaml

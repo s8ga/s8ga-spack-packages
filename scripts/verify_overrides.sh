@@ -44,14 +44,14 @@ done
 PASS=0
 FAIL=0
 
-ok()   { echo "  ✅ $1"; PASS=$((PASS+1)); }
-fail() { echo "  ❌ $1"; FAIL=$((FAIL+1)); }
+ok()   { echo "  [PASS] $1"; PASS=$((PASS+1)); }
+fail() { echo "  [FAIL] $1"; FAIL=$((FAIL+1)); }
 
 echo ""
-echo "╔════════════════════════════════════════════════════════════╗"
-echo "║  force_avx512 上游构建文件兼容性验证                       ║"
-echo "║  (spack stage — 源码 tarball，非 git clone)               ║"
-echo "╚════════════════════════════════════════════════════════════╝"
+echo "================================================================"
+echo "  force_avx512 upstream build file compatibility verification"
+echo "  (spack stage — source tarballs, NOT git clones)"
+echo "================================================================"
 echo ""
 
 # Helper: find the actual source directory inside a spack stage
@@ -67,13 +67,13 @@ stage_src_dir() {
     fi
 }
 
-# ─── OpenBLAS ──────────────────────────────────────────────────
+# --- OpenBLAS ---
 # Verification: NO_AVX512 make variable still exists in Makefile.system
 # Our package.py adds +force_avx512 to suppress NO_AVX512=1 conditionally.
 # If upstream removes NO_AVX512, our override breaks silently.
 verify_openblas() {
     local version="$1"
-    echo "── OpenBLAS@$version ──"
+    echo "-- OpenBLAS@$version --"
     local stage
     stage="$(spack location -s "openblas@$version" 2>/dev/null || true)"
     if [[ -z "$stage" || ! -d "$stage" ]]; then
@@ -82,26 +82,26 @@ verify_openblas() {
         stage="$(spack location -s "openblas@$version" 2>/dev/null || true)"
     fi
     if [[ -z "$stage" || ! -d "$stage" ]]; then
-        fail "无法 stage openblas@$version"
+        fail "Cannot stage openblas@$version"
         return
     fi
     local src
     src="$(stage_src_dir "$stage")"
     if grep -q 'NO_AVX512' "$src/Makefile.system" 2>/dev/null; then
-        ok "NO_AVX512 变量存在于 Makefile.system ($(grep -c 'NO_AVX512' "$src/Makefile.system") 处匹配)"
+        ok "NO_AVX512 found in Makefile.system ($(grep -c 'NO_AVX512' "$src/Makefile.system") matches)"
     else
-        fail "NO_AVX512 未找到于 Makefile.system — force_avx512 将失效！"
+        fail "NO_AVX512 NOT found in Makefile.system — force_avx512 will be broken!"
     fi
     echo ""
 }
 
-# ─── FFTW ──────────────────────────────────────────────────────
+# --- FFTW ---
 # Verification: --enable-avx512 configure flag still supported
 # Our package.py forces --enable-avx512 when +force_avx512.
 # If upstream removes avx512 from configure, our override breaks.
 verify_fftw() {
     local version="$1"
-    echo "── FFTW@$version ──"
+    echo "-- FFTW@$version --"
     local stage
     stage="$(spack location -s "fftw@$version" 2>/dev/null || true)"
     if [[ -z "$stage" || ! -d "$stage" ]]; then
@@ -110,26 +110,26 @@ verify_fftw() {
         stage="$(spack location -s "fftw@$version" 2>/dev/null || true)"
     fi
     if [[ -z "$stage" || ! -d "$stage" ]]; then
-        fail "无法 stage fftw@$version"
+        fail "Cannot stage fftw@$version"
         return
     fi
     local src
     src="$(stage_src_dir "$stage")"
     if grep -q 'avx512' "$src/configure" 2>/dev/null; then
-        ok "avx512 SIMD 选项存在于 configure 脚本 ($(grep -c 'avx512' "$src/configure") 处匹配)"
+        ok "avx512 SIMD option found in configure ($(grep -c 'avx512' "$src/configure") matches)"
     else
-        fail "avx512 未找到于 configure — force_avx512 将失效！"
+        fail "avx512 NOT found in configure — force_avx512 will be broken!"
     fi
     echo ""
 }
 
-# ─── ELPA ──────────────────────────────────────────────────────
+# --- ELPA ---
 # Verification: 3 patches apply cleanly via --dry-run
 # ELPA is the most fragile: configure and Makefile.in patches use exact
 # line numbers. Must verify per-version.
 verify_elpa() {
     local version="$1"
-    echo "── ELPA@$version ──"
+    echo "-- ELPA@$version --"
     local stage
     stage="$(spack location -s "elpa@$version" 2>/dev/null || true)"
     if [[ -z "$stage" || ! -d "$stage" ]]; then
@@ -138,7 +138,7 @@ verify_elpa() {
         stage="$(spack location -s "elpa@$version" 2>/dev/null || true)"
     fi
     if [[ -z "$stage" || ! -d "$stage" ]]; then
-        fail "无法 stage elpa@$version"
+        fail "Cannot stage elpa@$version"
         return
     fi
     local src
@@ -148,29 +148,29 @@ verify_elpa() {
     for patch_name in force_all_x86_kernel force_avx512_configure force_avx512_makefile_in; do
         local patch_file="$OVERRIDE_DIR/elpa/${patch_name}.patch"
         if [[ ! -f "$patch_file" ]]; then
-            fail "$patch_name.patch 文件不存在"
+            fail "$patch_name.patch file not found"
             continue
         fi
         if (cd "$src" && patch --dry-run -p1 < "$patch_file" >/dev/null 2>&1); then
-            ok "$patch_name.patch 可应用"
+            ok "$patch_name.patch applies cleanly"
         else
-            fail "$patch_name.patch 应用失败 — 需为此版本重新生成！"
+            fail "$patch_name.patch FAILED — needs regeneration for this version!"
         fi
     done
     echo ""
 }
 
-# ─── Run all verifications ─────────────────────────────────────
+# --- Run all verifications ---
 for v in "${OPENBLAS_VERSIONS[@]}"; do verify_openblas "$v"; done
 for v in "${ELPA_VERSIONS[@]}";     do verify_elpa "$v"; done
 for v in "${FFTW_VERSIONS[@]}";     do verify_fftw "$v"; done
 
-# ─── Summary ──────────────────────────────────────────────────
-echo "══════════════════════════════════════════════════════════════"
+# --- Summary ---
+echo "================================================================"
 if [[ $FAIL -eq 0 ]]; then
-    echo "✅ 全部通过 ($PASS 项检查) — force_avx512 与上游源码兼容！"
+    echo "[PASS] All $PASS checks passed — force_avx512 is compatible!"
     exit 0
 else
-    echo "❌ $FAIL 项失败, $PASS 项通过 — 请检查上方详细信息"
+    echo "[FAIL] $FAIL failed, $PASS passed — check details above"
     exit 1
 fi

@@ -1,6 +1,9 @@
 __pycache__/
 *.pyc
 
+# Internal tooling (not part of the spack repo)
+.opencode/
+
 # ABACUS test outputs / temporary files
 *.log
 *.tmp
@@ -11,3 +14,5 @@ test_dm_dir/
 test_hr_dir/
 wfc
 wfk*_pw.dat
+*.zip
+*.Zone.Identifier
