@@ -303,22 +303,17 @@ class Abacus(CMakePackage):
     # Parallel_Orbitals (inherits Parallel_2D) → non-copyable.
     #
     # Group A: source_hsolver layout — also needs missing scalapack_connector.h include
-    patch(
-        "pexsi-tests-copyable-3.9.patch",
-        sha256="bd51494828161a5dbb088c3d6cd7449d3fa009f604aaa171081f718c39f6d68c",
-        when="@3.9.0.10:3.9.0.27 +pexsi +tests",
-    )
-    patch(
-        "pexsi-tests-copyable-3.9.patch",
-        sha256="bd51494828161a5dbb088c3d6cd7449d3fa009f604aaa171081f718c39f6d68c",
-        when="@3.11.0-beta.4 +pexsi +tests",
-    )
+    patch("pexsi-tests-copyable-3.9.patch", when="@3.9.0.10:3.9.0.27 +pexsi +tests")
+    patch("pexsi-tests-copyable-3.9.patch", when="@3.11.0-beta.4 +pexsi +tests")
     # Group B: module_hsolver layout — copy ctor only, no extra include needed
-    patch(
-        "pexsi-tests-copyable-3.10.patch",
-        sha256="e49acbec9e633df4c010ce0dc8c8790acbfece31d4f3fbbe6f0c2afd2759ebfa",
-        when="@3.10 +pexsi +tests",
-    )
+    patch("pexsi-tests-copyable-3.10.patch", when="@3.10 +pexsi +tests")
+
+    # Skip esolver_dp_test when DeepMDKit is found but not linked to test target.
+    # CMake defines __DPMD globally via add_compile_definitions, but only links
+    # DeePMD::deepmd_c to the main binary — test targets fail to link.
+    patch("esolver_dp_test-guard-3.9.patch", when="@3.9.0.10:3.9.0.27 +tests")
+    patch("esolver_dp_test-guard-3.9.patch", when="@3.11.0-beta.4 +tests")
+    patch("esolver_dp_test-guard-3.10.patch", when="@3.10 +tests")
 
     # ------------------------------------------------------------------ #
     #  Patch (+tests: rewrite NAO test deep paths)                       #
@@ -436,7 +431,8 @@ class Abacus(CMakePackage):
         if spec.satisfies("@3.10"):
             # LTS old build system
             args.append(self.define_from_variant("ENABLE_DEEPKS", "deepks"))
-            # LTS still has ENABLE_PAW; force OFF (PAW removed @3.9.0.10).
+            # LTS still has ENABLE_PAW but requires libpaw_interface (no spack package).
+            # Force OFF — PAW is not supported in this build.
             args.append(self.define("ENABLE_PAW", False))
             if "+deepks" in spec:
                 self._add_torch_args(args, spec)
