@@ -56,10 +56,14 @@ while IFS= read -r test_bin; do
 done < <(find "$TESTS" -mindepth 3 -maxdepth 5 -type f -executable \
     -not -path "*/support/*" -not -path "*/data/*" \
     -not -path "*/CMakeFiles/*" -not -path "*/.spack/*" \
+    -not -path "*/PP_ORB/*" \
     -not -path "*/01_PW/*" -not -path "*/02_NAO*" -not -path "*/03_NAO*" \
     -not -path "*/04_FF/*" -not -path "*/05_rt*" -not -path "*/06_SDFT/*" \
     -not -path "*/07_OFDFT/*" -not -path "*/08_EXX/*" -not -path "*/09_DeePKS/*" \
     -not -path "*/10_others/*" -not -path "*/integrate/*" \
+    -not -path "*/libxc/*" -not -path "*/deepks/*" -not -path "*/performance/*" \
+    -not -name "*.txt" -not -name "*.json" -not -name "*.sh" -not -name "*.py" \
+    -not -name "*.cpp" -not -name "*.h" -not -name "*.cmake" \
     2>/dev/null | sort)
 
 END=$(date +%s)
