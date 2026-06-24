@@ -320,9 +320,10 @@ class Abacus(CMakePackage):
         if "+tests" in self.spec:
             # Rewrite deep relative paths for flat install layout.
             # Patterns: ../../../../../tests/PP_ORB/ and ../../../../../source/...
+            # Use test* to also catch test_serial, test_pw, test_parallel, etc.
             test_cpp_dirs = [
-                join_path(self.stage.source_path, "source", "*", "test"),
-                join_path(self.stage.source_path, "source", "*", "*", "test"),
+                join_path(self.stage.source_path, "source", "*", "test*"),
+                join_path(self.stage.source_path, "source", "*", "*", "test*"),
             ]
             for pattern in test_cpp_dirs:
                 for cpp in glob.glob(join_path(pattern, "*.cpp")):
@@ -336,6 +337,20 @@ class Abacus(CMakePackage):
                     filter_file(
                         r'"(\.\./){5}source/source_basis/module_nao/test/',
                         '"./',
+                        cpp,
+                    )
+                    # Rewrite ./support/ → ./support_<module_name>/ per test module.
+                    # Multiple modules have conflicting support/ files (e.g. chg.cube
+                    # in both source_io/test_serial and source_estate/test with
+                    # different contents). Per-module naming eliminates the conflict.
+                    test_dir = os.path.dirname(cpp)
+                    rel = os.path.relpath(
+                        test_dir, join_path(self.stage.source_path, "source")
+                    )
+                    module_name = rel.replace("/", "_")
+                    filter_file(
+                        r'"(\./)?support/',
+                        f'"./support_{module_name}/',
                         cpp,
                     )
 
@@ -548,29 +563,29 @@ class Abacus(CMakePackage):
         for f in glob.glob(join_path(src, "source", "*", "test", "*.dat")):
             install(f, dst)
 
-        # 5. Unit test data: support/ — merge all support/ dirs into one
-        mkdirp(join_path(dst, "support"))
-        for sd in glob.glob(join_path(src, "source", "*", "test", "support")) + \
-                  glob.glob(join_path(src, "source", "*", "*", "test", "support")):
-            for item in os.listdir(sd):
-                src_item = join_path(sd, item)
-                dst_item = join_path(dst, "support", item)
-                if os.path.lexists(dst_item):
-                    continue
-                if os.path.isdir(src_item):
-                    install_tree(src_item, dst_item)
-                else:
-                    install(src_item, join_path(dst, "support"))
+        # 5. Unit test data: support/ — install per-module to avoid conflicts.
+        # Multiple modules have support/ dirs with same filenames but different
+        # contents (e.g. chg.cube in source_io/test_serial vs source_estate/test).
+        # The patch() method rewrites ./support/ → ./support_<module_name>/ in
+        # test source files, so each binary reads its own module's support dir.
+        for sd in glob.glob(join_path(src, "source", "*", "test*", "support")) + \
+                  glob.glob(join_path(src, "source", "*", "*", "test*", "support")):
+            test_dir = os.path.dirname(sd)
+            rel = os.path.relpath(test_dir, join_path(src, "source"))
+            module_name = rel.replace("/", "_")
+            install_tree(sd, join_path(dst, f"support_{module_name}"))
 
         # 6. Test-specific data files and directories
         # Copy ALL subdirectories from each module's test/ dir (lcao_H2O/, GaAs/, etc.)
-        for test_dir in glob.glob(join_path(src, "source", "*", "test")) + \
-                        glob.glob(join_path(src, "source", "*", "*", "test")):
+        for test_dir in glob.glob(join_path(src, "source", "*", "test*")) + \
+                        glob.glob(join_path(src, "source", "*", "*", "test*")):
+            if not os.path.isdir(test_dir):
+                continue
             for item in os.listdir(test_dir):
                 item_path = join_path(test_dir, item)
                 if os.path.isdir(item_path):
                     if item in ("data", "support"):
-                        continue  # already handled above
+                        continue  # already handled in steps 3/5
                     dst_item = join_path(dst, item)
                     if not os.path.isdir(dst_item):
                         install_tree(item_path, dst_item)
