@@ -78,8 +78,8 @@ class Abacus(CMakePackage):
     )
     variant(
         "float-fftw",
-        default=False,
-        description="Enable single-precision FFTW backend",
+        default=True,
+        description="Enable single-precision FFTW backend (matches official CI default)",
     )
     variant(
         "native-optimization",
@@ -375,11 +375,13 @@ class Abacus(CMakePackage):
             # COMMIT_INFO=ON: git versions keep .git in the stage, so
             # `git describe` works and `abacus --version` shows the commit.
             self.define("COMMIT_INFO", True),
-            # Official CI does not set CMAKE_BUILD_TYPE (no NDEBUG), so assert()
-            # remains active and death tests pass. Spack defaults to Release
-            # which defines NDEBUG and breaks EXPECT_DEATH tests.
-            # -UNDEBUG re-enables assertions while keeping -O3 optimization.
-            self.define("CMAKE_CXX_FLAGS_RELEASE", "-O3 -UNDEBUG"),
+            # Official CI does not set CMAKE_BUILD_TYPE, so NDEBUG is never
+            # defined and EXPECT_DEATH tests pass. Spack's build_type variant
+            # adds -DNDEBUG via CMAKE_CXX_FLAGS_<TYPE>, which strips assert().
+            # Replace the build-type flags to remove -DNDEBUG while keeping
+            # optimization (-O3 for Release, -O3 -g for RelWithDebInfo).
+            self.define("CMAKE_CXX_FLAGS_RELEASE", "-O3"),
+            self.define("CMAKE_CXX_FLAGS_RELWITHDEBINFO", "-O3 -g"),
         ]
 
         # FFT backend: MKL (MKLROOT) vs FFTW3 (FFTW3_DIR).
