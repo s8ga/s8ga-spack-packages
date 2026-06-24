@@ -25,10 +25,6 @@ class Abacus(CMakePackage):
     """
 
     homepage = "https://abacus.deepmodeling.com/"
-    url = (
-        "https://github.com/deepmodeling/abacus-develop/"
-        "archive/refs/tags/v3.10.1.tar.gz"
-    )
     git = "https://github.com/deepmodeling/abacus-develop.git"
     list_url = "https://github.com/deepmodeling/abacus-develop/releases"
 
