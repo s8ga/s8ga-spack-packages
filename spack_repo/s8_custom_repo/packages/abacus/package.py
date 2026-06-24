@@ -581,6 +581,44 @@ class Abacus(CMakePackage):
                     if not os.path.exists(dst_item):
                         install(src_item, dst_module)
 
+        # 3. Copy shared test data (PP_ORB) into each module test dir.
+        #    NAO and IO tests reference ./PP_ORB/ (rewritten by patch() from
+        #    deep relative paths). PP_ORB is small and shared across modules.
+        pp_orb_src = join_path(src, "tests", "PP_ORB")
+        if os.path.isdir(pp_orb_src):
+            for module_test_dir in glob.glob(join_path(dst, "source_*", "test*")) + \
+                                    glob.glob(join_path(dst, "source_*", "*", "test*")) + \
+                                    glob.glob(join_path(dst, "module_*", "test*")) + \
+                                    glob.glob(join_path(dst, "module_*", "*", "test*")):
+                if os.path.isdir(module_test_dir):
+                    install_tree(pp_orb_src, join_path(module_test_dir, "PP_ORB"))
+
+        # 4. Copy source-only test data files (.txt, .json, .html, etc.) that
+        #    were not copied to the build dir by CMake's file(COPY).  The NAO
+        #    deep-path rewrite in patch() turns "../../../source/.../test/FILE"
+        #    into "./FILE", so these files must sit next to the binary.
+        for src_test_dir in glob.glob(join_path(src, "source", "*", "test*")) + \
+                             glob.glob(join_path(src, "source", "*", "*", "test*")):
+            if not os.path.isdir(src_test_dir):
+                continue
+            rel = os.path.relpath(src_test_dir, join_path(src, "source"))
+            dst_module = join_path(dst, rel)
+            if not os.path.isdir(dst_module):
+                continue
+            for item in os.listdir(src_test_dir):
+                if item in (".", "..", "CMakeFiles", "CMakeLists.txt"):
+                    continue
+                if item.endswith((".cpp", ".h", ".hpp", ".cmake")):
+                    continue
+                src_item = join_path(src_test_dir, item)
+                dst_item = join_path(dst_module, item)
+                if os.path.exists(dst_item):
+                    continue
+                if os.path.isdir(src_item):
+                    install_tree(src_item, dst_item)
+                elif os.path.isfile(src_item):
+                    install(src_item, dst_module)
+
     # ------------------------------------------------------------------ #
     #  Stand-alone smoke tests (spack test run)                          #
     # ------------------------------------------------------------------ #
