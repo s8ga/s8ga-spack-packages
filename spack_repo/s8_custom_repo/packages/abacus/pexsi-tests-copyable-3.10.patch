@@ -1,5 +1,5 @@
---- source/module_hsolver/test/diago_pexsi_test.cpp	2026-06-23 19:09:59.102923698 +0800
-+++ source/module_hsolver/test/diago_pexsi_test.cpp	2026-06-23 19:10:47.406942640 +0800
+--- a/source/module_hsolver/test/diago_pexsi_test.cpp	2026-06-23 19:09:59.102923698 +0800
++++ b/source/module_hsolver/test/diago_pexsi_test.cpp	2026-06-23 19:10:47.406942640 +0800
 @@ -63,6 +63,46 @@
          MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
      }

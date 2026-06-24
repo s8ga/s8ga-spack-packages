@@ -1,5 +1,5 @@
---- source/source_hsolver/test/diago_pexsi_test.cpp	2026-06-23 19:41:45.091398410 +0800
-+++ source/source_hsolver/test/diago_pexsi_test.cpp	2026-06-23 19:48:03.047470013 +0800
+--- a/source/source_hsolver/test/diago_pexsi_test.cpp	2026-06-23 19:41:45.091398410 +0800
++++ b/source/source_hsolver/test/diago_pexsi_test.cpp	2026-06-23 19:48:03.047470013 +0800
 @@ -10,6 +10,7 @@
  #include "source_hsolver/module_pexsi/pexsi_solver.h"
  #include "source_hsolver/test/diago_elpa_utils.h"
