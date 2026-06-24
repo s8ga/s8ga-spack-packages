@@ -3,7 +3,8 @@
 # abacus_run_module_tests.sh — Batch run ABACUS MODULE_* unit tests
 #
 # Auto-discovers the ABACUS install under /opt/spack/linux-x86_64_v3/
-# and runs all MODULE_* unit-test executables sequentially.
+# and runs all unit-test executables. Each test runs from its own module
+# directory so ./support/ resolves correctly.
 #
 # Usage (inside container):
 #   podman run --rm --network=host \
@@ -26,22 +27,21 @@ echo ""
 
 PASS=0
 FAIL=0
-SKIP=0
 FAILED_TESTS=""
 START=$(date +%s)
 
-for test_bin in "$TESTS"/MODULE_*; do
+# Find all test executables in module subdirectories (source_*/test*/ or module_*/test*/)
+# Skip CMake artifacts, support/, data/, and other non-test files
+while IFS= read -r test_bin; do
     [[ -x "$test_bin" ]] || continue
     name=$(basename "$test_bin")
-
-    # Skip test-specific data dirs that match MODULE_* pattern
-    [[ -d "$test_bin" ]] && continue
+    dir=$(dirname "$test_bin")
 
     echo "--- $name ---"
     t0=$(date +%s)
 
     rc=0
-    (cd "$TESTS" && ./"$name" 2>&1) || rc=$?
+    (cd "$dir" && timeout 30 ./"$name" 2>&1) || rc=$?
 
     t1=$(date +%s)
     if [[ $rc -eq 0 ]]; then
@@ -53,11 +53,18 @@ for test_bin in "$TESTS"/MODULE_*; do
         FAILED_TESTS="${FAILED_TESTS}\n  $name"
     fi
     echo ""
-done
+done < <(find "$TESTS" -mindepth 3 -maxdepth 5 -type f -executable \
+    -not -path "*/support/*" -not -path "*/data/*" \
+    -not -path "*/CMakeFiles/*" -not -path "*/.spack/*" \
+    -not -path "*/01_PW/*" -not -path "*/02_NAO*" -not -path "*/03_NAO*" \
+    -not -path "*/04_FF/*" -not -path "*/05_rt*" -not -path "*/06_SDFT/*" \
+    -not -path "*/07_OFDFT/*" -not -path "*/08_EXX/*" -not -path "*/09_DeePKS/*" \
+    -not -path "*/10_others/*" -not -path "*/integrate/*" \
+    2>/dev/null | sort)
 
 END=$(date +%s)
 ELAPSED=$((END - START))
-TOTAL=$((PASS + FAIL + SKIP))
+TOTAL=$((PASS + FAIL))
 
 echo "================================================================"
 echo "  Summary"

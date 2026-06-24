@@ -339,22 +339,6 @@ class Abacus(CMakePackage):
                         '"./',
                         cpp,
                     )
-                    # Rewrite support/ → support_<module_name>/ per test module.
-                    # Multiple modules have conflicting support/ files (e.g. chg.cube
-                    # in both source_io/test_serial and source_estate/test with
-                    # different contents). Per-module naming eliminates the conflict.
-                    # Regex matches support/ preceded by ", space, or ( to also
-                    # catch system("diff ... support/") calls in older versions.
-                    test_dir = os.path.dirname(cpp)
-                    rel = os.path.relpath(
-                        test_dir, join_path(self.stage.source_path, "source")
-                    )
-                    module_name = rel.replace("/", "_")
-                    filter_file(
-                        r'([\s"(])(\./)?support/',
-                        rf'\1./support_{module_name}/',
-                        cpp,
-                    )
 
     # ------------------------------------------------------------------ #
     #  CMake arguments                                                   #
@@ -533,70 +517,69 @@ class Abacus(CMakePackage):
 
     @run_after("install")
     def install_test_artifacts(self):
-        """Collect all test artifacts into one flat directory.
+        """Collect all test artifacts, preserving module directory structure.
 
-        Everything goes to ``share/abacus/tests/``:
-          - MODULE_* unit-test executables (from build/tests/)
-          - Integration test data (tests/: INPUT/STRU/KPT/PP_ORB/Autotest.sh)
-          - Unit test data (source/*/test/data, *.dat, support/)
-        Run unit tests with: ``cd share/abacus/tests/ && ./MODULE_*``
-        Run integration tests with: ``cd share/abacus/tests/01_PW/ &&
-        bash ../integrate/Autotest.sh -a abacus -n 4``
+        Integration tests go flat to ``share/abacus/tests/`` (01_PW/, etc.).
+        Module unit tests preserve their build directory structure so each
+        binary sits next to its own ``support/`` directory — this avoids
+        file conflicts when multiple modules have same-named support files
+        with different contents (e.g. chg.cube).
+
+        Layout::
+
+            share/abacus/tests/
+              01_PW/                          # integration tests (flat)
+              integrate/Autotest.sh
+              PP_ORB/
+              source_io/test_serial/
+                MODULE_IO_rho_io              # binary + support together
+                support/chg.cube              # 36³ (this module's version)
+              source_estate/test/
+                MODULE_ESTATE_charge_test
+                support/chg.cube              # 32³ (different content, no conflict)
+              source_cell/test/
+                MODULE_CELL_unitcell_test
+                support/...
+
+        Run unit tests with the abacus_run_module_tests.sh script.
+        Run integration tests with abacus_run_integration_tests.sh.
         """
         if "+tests" not in self.spec:
             return
 
         dst = join_path(self.prefix.share, "abacus", "tests")
         src = self.stage.source_path
+        build = self.build_directory
 
         # 1. Integration test data (INPUT/STRU/KPT/PP_ORB/Autotest.sh)
         install_tree(join_path(src, "tests"), dst)
 
-        # 2. MODULE_* compiled unit-test executables
-        build_tests = join_path(self.build_directory, "tests")
-        if os.path.isdir(build_tests):
-            install_tree(build_tests, dst)
-
-        # 3. Unit test data: source_base/test/data/ → dst/data/
-        for d in glob.glob(join_path(src, "source", "*", "test", "data")):
-            install_tree(d, join_path(dst, "data"))
-
-        # 4. Unit test data: source_hsolver/test/*.dat → dst/
-        for f in glob.glob(join_path(src, "source", "*", "test", "*.dat")):
-            install(f, dst)
-
-        # 5. Unit test data: support/ — install per-module to avoid conflicts.
-        # Multiple modules have support/ dirs with same filenames but different
-        # contents (e.g. chg.cube in source_io/test_serial vs source_estate/test).
-        # The patch() method rewrites ./support/ → ./support_<module_name>/ in
-        # test source files, so each binary reads its own module's support dir.
-        for sd in glob.glob(join_path(src, "source", "*", "test*", "support")) + \
-                  glob.glob(join_path(src, "source", "*", "*", "test*", "support")):
-            test_dir = os.path.dirname(sd)
-            rel = os.path.relpath(test_dir, join_path(src, "source"))
-            module_name = rel.replace("/", "_")
-            install_tree(sd, join_path(dst, f"support_{module_name}"))
-
-        # 6. Test-specific data files and directories
-        # Copy ALL subdirectories from each module's test/ dir (lcao_H2O/, GaAs/, etc.)
-        for test_dir in glob.glob(join_path(src, "source", "*", "test*")) + \
-                        glob.glob(join_path(src, "source", "*", "*", "test*")):
-            if not os.path.isdir(test_dir):
+        # 2. MODULE_* unit tests: copy from build dir preserving module structure.
+        #    The build dir has binaries + support/ + data/ together (CMake's
+        #    file(COPY support ...) puts them side by side). We copy everything
+        #    except CMake artifacts, so each test runs with its own support files.
+        _SKIP = {
+            "CMakeFiles", "Makefile", "cmake_install.cmake",
+            "CTestTestfile.cmake", "CMakeCache.txt", "cmake_pch",
+        }
+        for build_test_dir in glob.glob(join_path(build, "source", "*", "test*")) + \
+                              glob.glob(join_path(build, "source", "*", "*", "test*")):
+            if not os.path.isdir(build_test_dir):
                 continue
-            for item in os.listdir(test_dir):
-                item_path = join_path(test_dir, item)
-                if os.path.isdir(item_path):
-                    if item in ("data", "support"):
-                        continue  # already handled in steps 3/5
-                    dst_item = join_path(dst, item)
-                    if not os.path.isdir(dst_item):
-                        install_tree(item_path, dst_item)
-                elif item.endswith((".txt", ".orb", ".upf", ".UPF", ".html", ".dat", ".pb")) \
-                        or "." not in item:
-                    # Copy data files and extensionless files (e.g., INPUTs)
-                    dst_file = join_path(dst, item)
-                    if not os.path.exists(dst_file):
-                        install(item_path, dst_file)
+            rel = os.path.relpath(build_test_dir, join_path(build, "source"))
+            dst_module = join_path(dst, rel)
+            mkdirp(dst_module)
+            for item in os.listdir(build_test_dir):
+                if item in _SKIP or item.endswith(".cmake") or item.endswith(".pch"):
+                    continue
+                src_item = join_path(build_test_dir, item)
+                dst_item = join_path(dst_module, item)
+                if os.path.isdir(src_item):
+                    if not os.path.exists(dst_item):
+                        install_tree(src_item, dst_item)
+                elif os.path.isfile(src_item):
+                    if not os.path.exists(dst_item):
+                        install(src_item, dst_module)
 
     # ------------------------------------------------------------------ #
     #  Stand-alone smoke tests (spack test run)                          #
