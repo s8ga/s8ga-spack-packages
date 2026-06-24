@@ -339,18 +339,20 @@ class Abacus(CMakePackage):
                         '"./',
                         cpp,
                     )
-                    # Rewrite ./support/ → ./support_<module_name>/ per test module.
+                    # Rewrite support/ → support_<module_name>/ per test module.
                     # Multiple modules have conflicting support/ files (e.g. chg.cube
                     # in both source_io/test_serial and source_estate/test with
                     # different contents). Per-module naming eliminates the conflict.
+                    # Regex matches support/ preceded by ", space, or ( to also
+                    # catch system("diff ... support/") calls in older versions.
                     test_dir = os.path.dirname(cpp)
                     rel = os.path.relpath(
                         test_dir, join_path(self.stage.source_path, "source")
                     )
                     module_name = rel.replace("/", "_")
                     filter_file(
-                        r'"(\./)?support/',
-                        f'"./support_{module_name}/',
+                        r'([\s"(])(\./)?support/',
+                        rf'\1./support_{module_name}/',
                         cpp,
                     )
 
