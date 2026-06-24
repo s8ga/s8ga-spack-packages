@@ -375,6 +375,11 @@ class Abacus(CMakePackage):
             # COMMIT_INFO=ON: git versions keep .git in the stage, so
             # `git describe` works and `abacus --version` shows the commit.
             self.define("COMMIT_INFO", True),
+            # Official CI does not set CMAKE_BUILD_TYPE (no NDEBUG), so assert()
+            # remains active and death tests pass. Spack defaults to Release
+            # which defines NDEBUG and breaks EXPECT_DEATH tests.
+            # -UNDEBUG re-enables assertions while keeping -O3 optimization.
+            self.define("CMAKE_CXX_FLAGS_RELEASE", "-O3 -UNDEBUG"),
         ]
 
         # FFT backend: MKL (MKLROOT) vs FFTW3 (FFTW3_DIR).
