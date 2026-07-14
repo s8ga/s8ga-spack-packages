@@ -1,0 +1,2008 @@
+diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile' '--exclude=*.log' a/src/CMakeLists.txt b/src/CMakeLists.txt
+--- a/src/CMakeLists.txt	2026-01-03 03:23:02.803952200 +0800
++++ b/src/CMakeLists.txt	2026-07-07 18:39:58.765685411 +0800
+@@ -659,6 +659,7 @@
+   qs_mom_types.F
+   qs_mo_occupation.F
+   qs_mo_types.F
++  qs_nac_methods.F
+   qs_neighbor_lists.F
+   qs_neighbor_list_types.F
+   qs_nl_hash_table_types.F
+diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile' '--exclude=*.log' a/src/input_cp2k_properties_dft.F b/src/input_cp2k_properties_dft.F
+--- a/src/input_cp2k_properties_dft.F	2026-01-03 03:23:02.931959200 +0800
++++ b/src/input_cp2k_properties_dft.F	2026-07-14 21:57:40.697775691 +0800
+@@ -144,6 +144,10 @@
+       CALL section_add_subsection(section, subsection)
+       CALL section_release(subsection)
+ 
++      CALL create_nac_section(subsection)
++      CALL section_add_subsection(section, subsection)
++      CALL section_release(subsection)
++
+    END SUBROUTINE create_properties_section
+ 
+ ! **************************************************************************************************
+@@ -2679,4 +2683,99 @@
+ 
+    END SUBROUTINE create_tipscan_section
+ 
++! **************************************************************************************************
++!> \brief Creates the input section for On-the-fly Non-Adiabatic Coupling (Hefei-NAMD output).
++!> \param section ...
++! **************************************************************************************************
++   SUBROUTINE create_nac_section(section)
++      TYPE(section_type), POINTER                        :: section
++
++      TYPE(keyword_type), POINTER                        :: keyword
++      TYPE(section_type), POINTER                        :: print_key
++
++      CPASSERT(.NOT. ASSOCIATED(section))
++      CALL section_create(section, __LOCATION__, name="NAC", &
++                          description="Parameters needed to set Non-Adiabatic Coupling calculation "// &
++                          "(on-the-fly instantaneous-overlap framework). Produces Hefei-NAMD native "// &
++                          "EIGTXT (band energies, eV) and NATXT (raw antisymmetric overlap difference) files.", &
++                          n_keywords=7, n_subsections=1, repeats=.TRUE.)
++
++      NULLIFY (keyword)
++
++      CALL keyword_create(keyword, __LOCATION__, &
++                          name="_SECTION_PARAMETERS_", &
++                          description="Controls the activation of the NAC procedure", &
++                          default_l_val=.FALSE., &
++                          lone_keyword_l_val=.TRUE.)
++      CALL section_add_keyword(section, keyword)
++      CALL keyword_release(keyword)
++
++      CALL keyword_create(keyword, __LOCATION__, name="ACTIVE_SPACE_OCC", &
++                          description="Number of occupied orbitals in the active space (mode A). "// &
++                          "Mutually exclusive with ACTIVE_SPACE_BMIN/BMAX.", &
++                          usage="ACTIVE_SPACE_OCC 10", &
++                          n_var=1, type_of_var=integer_t, default_i_val=0)
++      CALL section_add_keyword(section, keyword)
++      CALL keyword_release(keyword)
++
++      CALL keyword_create(keyword, __LOCATION__, name="ACTIVE_SPACE_VIR", &
++                          description="Number of virtual orbitals in the active space (mode A). "// &
++                          "Mutually exclusive with ACTIVE_SPACE_BMIN/BMAX.", &
++                          usage="ACTIVE_SPACE_VIR 10", &
++                          n_var=1, type_of_var=integer_t, default_i_val=0)
++      CALL section_add_keyword(section, keyword)
++      CALL keyword_release(keyword)
++
++      CALL keyword_create(keyword, __LOCATION__, name="ACTIVE_SPACE_BMIN", &
++                          description="Lowest band index of the active space (1-based, mode B). "// &
++                          "Must be used together with ACTIVE_SPACE_BMAX.", &
++                          usage="ACTIVE_SPACE_BMIN 11", &
++                          n_var=1, type_of_var=integer_t, default_i_val=0)
++      CALL section_add_keyword(section, keyword)
++      CALL keyword_release(keyword)
++
++      CALL keyword_create(keyword, __LOCATION__, name="ACTIVE_SPACE_BMAX", &
++                          description="Highest band index of the active space (1-based, mode B). "// &
++                          "Must be used together with ACTIVE_SPACE_BMIN.", &
++                          usage="ACTIVE_SPACE_BMAX 30", &
++                          n_var=1, type_of_var=integer_t, default_i_val=0)
++      CALL section_add_keyword(section, keyword)
++      CALL keyword_release(keyword)
++
++      CALL keyword_create(keyword, __LOCATION__, name="PHASE_REF_INTERVAL", &
++                          description="Refresh the phase-correction reference MO set every N MD steps "// &
++                          "(prevents long-term accumulation of sign errors).", &
++                          usage="PHASE_REF_INTERVAL 10", &
++                          n_var=1, type_of_var=integer_t, default_i_val=10)
++      CALL section_add_keyword(section, keyword)
++      CALL keyword_release(keyword)
++
++      CALL keyword_create(keyword, __LOCATION__, name="REORDER_ORBITALS", &
++                          description="Enable Hungarian (Kuhn-Munkres) orbital matching across MD steps "// &
++                          "to track orbital identity through avoided crossings. When TRUE, switches to "// &
++                          "step-to-step sign(diag(overlap)) phase (CA-NAC/Hefei-NAMD convention, no saved "// &
++                          "reference). Default FALSE = Tsai sign-diagonal against saved ref_mo.", &
++                          usage="REORDER_ORBITALS .TRUE.", &
++                          n_var=0, type_of_var=logical_t, default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
++      CALL section_add_keyword(section, keyword)
++      CALL keyword_release(keyword)
++
++      CALL keyword_create(keyword, __LOCATION__, name="NAC_FILENAME", &
++                          description="Base filename for Hefei-NAMD output. Generates <NAME>.EIGTXT and "// &
++                          "<NAME>.NATXT (plus _s2 variants for spin-unrestricted calculations).", &
++                          usage="NAC_FILENAME CP2K_NAC", &
++                          n_var=1, type_of_var=lchar_t, default_lc_val="NAC")
++      CALL section_add_keyword(section, keyword)
++      CALL keyword_release(keyword)
++
++      NULLIFY (print_key)
++      CALL cp_print_key_section_create(print_key, __LOCATION__, name="PRINT", &
++                                       description="Controls the optional human-readable NAC dump (debug). "// &
++                                       "Hefei-NAMD EIGTXT/NATXT files are always written when NAC is enabled.", &
++                                       print_level=medium_print_level, filename="NAC", unit_str="hartree")
++      CALL section_add_subsection(section, print_key)
++      CALL section_release(print_key)
++
++   END SUBROUTINE create_nac_section
++
+ END MODULE input_cp2k_properties_dft
+diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile' '--exclude=*.log' a/src/qs_energy_utils.F b/src/qs_energy_utils.F
+--- a/src/qs_energy_utils.F	2026-01-03 03:23:03.026964400 +0800
++++ b/src/qs_energy_utils.F	2026-07-07 18:38:43.833681500 +0800
+@@ -53,6 +53,7 @@
+    USE qs_ks_types,                     ONLY: qs_ks_env_type
+    USE qs_linres_module,                ONLY: linres_calculation_low
+    USE qs_local_rho_types,              ONLY: local_rho_type
++   USE qs_nac_methods,                  ONLY: nac
+    USE qs_rho0_ggrid,                   ONLY: integrate_vhg0_rspace
+    USE qs_rho_atom_types,               ONLY: rho_atom_type,&
+                                               zero_rho_atom_integrals
+@@ -221,6 +222,12 @@
+          CALL tip_scanning(qs_env, tip_scan_section)
+       END IF
+ 
++      ! On-the-fly Non-Adiabatic Coupling (writes Hefei-NAMD EIGTXT/NATXT).
++      ! Self-gating: parses PROPERTIES%NAC on first call, no-op when disabled.
++      ! Module-level SAVE state in qs_nac_methods is released automatically when a
++      ! new MD run is detected (qs_env%sim_step == 0); nac_release is public for explicit teardown.
++      CALL nac(qs_env)
++
+       CALL timestop(handle)
+ 
+    END SUBROUTINE qs_energies_properties
+diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile' '--exclude=*.log' a/src/qs_nac_methods.F b/src/qs_nac_methods.F
+--- a/src/qs_nac_methods.F	1970-01-01 08:00:00.000000000 +0800
++++ b/src/qs_nac_methods.F	2026-07-08 18:40:32.815560575 +0800
+@@ -0,0 +1,1739 @@
++!--------------------------------------------------------------------------------------------------!
++!   CP2K: A general program to perform molecular dynamics simulations                              !
++!   Copyright 2000-2024 CP2K developers group <https://cp2k.org>                                   !
++!                                                                                                  !
++!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
++!--------------------------------------------------------------------------------------------------!
++!> \brief On-the-fly Non-Adiabatic Coupling (NAC) for Hefei-NAMD.
++!>
++!> Non-intrusive port of the Instantaneous-Overlap NAC framework (Tsai, 2026 preprint).
++!> All persistent state is held in module-level SAVE variables (single-force-env MD only);
++!> qs_environment_type / qs_env_release are NOT modified. Input is parsed on demand from
++!> qs_env%input (PROPERTIES%NAC). Output is written in Hefei-NAMD's native EIGTXT/NATXT
++!> text format (dimensionless antisymmetric overlap difference O_ij - O_ji; consumer divides
++!> by 2*dt; band energies in eV). See abacus-namd/src/NACfunc.py + SurfHop.py for the spec.
++MODULE qs_nac_methods
++   USE cp_blacs_env,                    ONLY: cp_blacs_env_type
++   USE cp_control_types,                ONLY: dft_control_type,&
++                                              tddfpt2_control_type
++   USE cp_dbcsr_api,                    ONLY: dbcsr_p_type,&
++                                              dbcsr_type
++   USE cp_dbcsr_operations,             ONLY: copy_dbcsr_to_fm,&
++                                              cp_dbcsr_sm_fm_multiply
++   USE cp_fm_basic_linalg,              ONLY: cp_fm_column_scale,&
++                                              cp_fm_gemm,&
++                                              cp_fm_scale_and_add,&
++                                              cp_fm_schur_product
++   USE cp_fm_cholesky,                  ONLY: cp_fm_cholesky_decompose
++   USE cp_fm_struct,                    ONLY: cp_fm_struct_create,&
++                                              cp_fm_struct_release,&
++                                              cp_fm_struct_type
++   USE cp_fm_types,                     ONLY: cp_fm_create,&
++                                              cp_fm_get_diag,&
++                                              cp_fm_get_info,&
++                                              cp_fm_get_submatrix,&
++                                              cp_fm_init_random,&
++                                              cp_fm_release,&
++                                              cp_fm_set_all,&
++                                              cp_fm_set_element,&
++                                              cp_fm_set_submatrix,&
++                                              cp_fm_to_fm,&
++                                              cp_fm_to_fm_submat,&
++                                              cp_fm_type,&
++                                              cp_fm_write_formatted
++   USE cp_log_handling,                 ONLY: cp_get_default_logger,&
++                                              cp_logger_get_default_io_unit,&
++                                              cp_logger_type
++   USE cp_output_handling,              ONLY: cp_print_key_finished_output,&
++                                              cp_print_key_should_output,&
++                                              cp_print_key_unit_nr,&
++                                              medium_print_level
++   USE cp_units,                        ONLY: cp_unit_from_cp2k
++   USE input_constants,                 ONLY: cholesky_restore
++   USE input_section_types,             ONLY: section_vals_get,&
++                                              section_vals_get_subs_vals,&
++                                              section_vals_type,&
++                                              section_vals_val_get
++   USE kinds,                           ONLY: dp
++   USE message_passing,                 ONLY: mp_comm_type,&
++                                              mp_para_env_type
++   USE qs_environment_types,            ONLY: get_qs_env,&
++                                              qs_environment_type
++   USE qs_mo_types,                     ONLY: allocate_mo_set,&
++                                              deallocate_mo_set,&
++                                              duplicate_mo_set,&
++                                              init_mo_set,&
++                                              mo_set_type,&
++                                              reassign_allocated_mos
++   USE qs_scf_methods,                  ONLY: eigensolver
++   USE qs_scf_types,                    ONLY: block_davidson_diag_method_nr,&
++                                              block_krylov_diag_method_nr,&
++                                              general_diag_method_nr,&
++                                              ot_method_nr,&
++                                              qs_scf_env_type,&
++                                              special_diag_method_nr
++   USE scf_control_types,               ONLY: scf_control_type
++#include "./base/base_uses.f90"
++
++   IMPLICIT NONE
++
++   PRIVATE
++
++   CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'qs_nac_methods'
++
++   REAL(kind=dp), PARAMETER, PRIVATE :: HARTREE_to_eV = 27.211386245988_dp
++
++   PUBLIC :: nac, nac_is_enabled, nac_set_tddfpt_data, nac_release
++
++   ! ------------------------------------------------------------------------------------------
++   ! Module-level SAVE state (Option B). Persists across MD steps for one force_env.
++   ! Per-rep arrays store settings/state for each &NAC block; scalar working variables
++   ! are loaded from them at the start of each rep iteration in nac().
++   ! ------------------------------------------------------------------------------------------
++   TYPE(mo_set_type), DIMENSION(:, :), POINTER, SAVE :: last_mo_reps => NULL()
++   TYPE(mo_set_type), DIMENSION(:, :), POINTER, SAVE :: ref_mo_reps => NULL()
++   TYPE(cp_fm_type), DIMENSION(:, :), POINTER, SAVE :: tddfpt_evects_state => NULL()
++   REAL(kind=dp), DIMENSION(:), POINTER, SAVE :: tddfpt_evals_state => NULL()
++
++   ! Global flags (not per-rep)
++   LOGICAL, SAVE :: nac_enabled = .FALSE.
++   LOGICAL, SAVE :: nac_do_eigen = .FALSE.
++   LOGICAL, SAVE :: nac_with_tddfpt = .FALSE.
++   LOGICAL, SAVE :: nac_initialized = .FALSE.
++   LOGICAL, SAVE :: nac_parsed = .FALSE.
++   REAL(kind=dp), SAVE :: nac_dt = 0.0_dp
++   INTEGER, SAVE :: nac_n_rep = 0
++   INTEGER, SAVE :: nac_irep = 1
++
++   ! Per-rep persistent storage (dimension nac_n_rep)
++   LOGICAL, SAVE, ALLOCATABLE :: nac_use_bmin_bmax_r(:)
++   LOGICAL, SAVE, ALLOCATABLE :: nac_reorder_orbitals_r(:)
++   INTEGER, SAVE, ALLOCATABLE :: nac_occ_active_space_r(:)
++   INTEGER, SAVE, ALLOCATABLE :: nac_vir_active_space_r(:)
++   INTEGER, SAVE, ALLOCATABLE :: nac_bmin_r(:)
++   INTEGER, SAVE, ALLOCATABLE :: nac_bmax_r(:)
++   INTEGER, SAVE, ALLOCATABLE :: nac_phase_ref_interval_r(:)
++   CHARACTER(len=64), SAVE, ALLOCATABLE :: nac_filename_r(:)
++   INTEGER, SAVE, ALLOCATABLE :: nac_eigtxt_unit_r(:, :)
++   INTEGER, SAVE, ALLOCATABLE :: nac_natxt_unit_r(:, :)
++   LOGICAL, SAVE, ALLOCATABLE :: nac_eigtxt_open_r(:, :)
++   LOGICAL, SAVE, ALLOCATABLE :: nac_natxt_open_r(:, :)
++
++   ! Working variables (loaded from _r arrays per rep; existing code uses these unchanged)
++   TYPE(mo_set_type), DIMENSION(:), POINTER, SAVE :: last_mo_state => NULL()
++   TYPE(mo_set_type), DIMENSION(:), POINTER, SAVE :: ref_mo_state => NULL()
++   LOGICAL, SAVE :: nac_use_bmin_bmax = .FALSE.
++   LOGICAL, SAVE :: nac_reorder_orbitals = .FALSE.
++   INTEGER, SAVE :: nac_occ_active_space = 0
++   INTEGER, SAVE :: nac_vir_active_space = 0
++   INTEGER, SAVE :: nac_bmin = 0
++   INTEGER, SAVE :: nac_bmax = 0
++   INTEGER, SAVE :: nac_phase_ref_interval = 10
++   CHARACTER(len=64), SAVE :: nac_filename = "NAC"
++   INTEGER, SAVE :: nac_eigtxt_unit(2) = -1
++   INTEGER, SAVE :: nac_natxt_unit(2) = -1
++   LOGICAL, SAVE :: nac_eigtxt_open(2) = .FALSE.
++   LOGICAL, SAVE :: nac_natxt_open(2) = .FALSE.
++
++CONTAINS
++
++! **************************************************************************************************
++!> \brief One-shot parse of PROPERTIES%NAC from qs_env%input. Caches into module SAVE.
++!> \param qs_env ...
++! **************************************************************************************************
++   SUBROUTINE nac_parse_input(qs_env)
++      TYPE(qs_environment_type), POINTER                 :: qs_env
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_parse_input'
++
++      INTEGER                                            :: handle, irep, n_rep
++      LOGICAL                                            :: rep_enabled
++      TYPE(dft_control_type), POINTER                    :: dft_control
++      TYPE(section_vals_type), POINTER                   :: nac_section
++
++      CALL timeset(routineN, handle)
++
++      NULLIFY (dft_control, nac_section)
++      nac_section => section_vals_get_subs_vals(qs_env%input, "PROPERTIES%NAC")
++
++      CALL section_vals_get(nac_section, n_repetition=n_rep)
++      IF (n_rep < 1) n_rep = 1
++      nac_n_rep = n_rep
++
++      ALLOCATE (nac_occ_active_space_r(n_rep), nac_vir_active_space_r(n_rep))
++      ALLOCATE (nac_bmin_r(n_rep), nac_bmax_r(n_rep))
++      ALLOCATE (nac_use_bmin_bmax_r(n_rep), nac_reorder_orbitals_r(n_rep))
++      ALLOCATE (nac_phase_ref_interval_r(n_rep), nac_filename_r(n_rep))
++
++      nac_enabled = .FALSE.
++      DO irep = 1, n_rep
++         CALL section_vals_val_get(nac_section, "_SECTION_PARAMETERS_", i_rep_section=irep, l_val=rep_enabled)
++         IF (rep_enabled) nac_enabled = .TRUE.
++         CALL section_vals_val_get(nac_section, "ACTIVE_SPACE_OCC", i_rep_section=irep, i_val=nac_occ_active_space_r(irep))
++         CALL section_vals_val_get(nac_section, "ACTIVE_SPACE_VIR", i_rep_section=irep, i_val=nac_vir_active_space_r(irep))
++         CALL section_vals_val_get(nac_section, "ACTIVE_SPACE_BMIN", i_rep_section=irep, i_val=nac_bmin_r(irep))
++         CALL section_vals_val_get(nac_section, "ACTIVE_SPACE_BMAX", i_rep_section=irep, i_val=nac_bmax_r(irep))
++         CALL section_vals_val_get(nac_section, "PHASE_REF_INTERVAL", i_rep_section=irep, i_val=nac_phase_ref_interval_r(irep))
++         CALL section_vals_val_get(nac_section, "REORDER_ORBITALS", i_rep_section=irep, l_val=nac_reorder_orbitals_r(irep))
++         CALL section_vals_val_get(nac_section, "NAC_FILENAME", i_rep_section=irep, c_val=nac_filename_r(irep))
++
++         IF (nac_phase_ref_interval_r(irep) < 1) nac_phase_ref_interval_r(irep) = 10
++
++         nac_use_bmin_bmax_r(irep) = (nac_bmin_r(irep) > 0 .OR. nac_bmax_r(irep) > 0)
++         IF (nac_use_bmin_bmax_r(irep)) THEN
++            CPASSERT(nac_bmin_r(irep) > 0 .AND. nac_bmax_r(irep) > 0)
++            CPASSERT(nac_bmax_r(irep) >= nac_bmin_r(irep))
++            IF (nac_occ_active_space_r(irep) > 0 .OR. nac_vir_active_space_r(irep) > 0) THEN
++               CPWARN("NAC: both ACTIVE_SPACE_OCC/VIR and ACTIVE_SPACE_BMIN/BMAX set; using BMIN/BMAX.")
++               nac_occ_active_space_r(irep) = 0
++               nac_vir_active_space_r(irep) = 0
++            END IF
++         END IF
++      END DO
++
++      CALL get_qs_env(qs_env, dft_control=dft_control)
++      IF (dft_control%tddfpt2_control%enabled) THEN
++         ! TDDFPT drives the active space; user-supplied values are advisory only
++         nac_with_tddfpt = .TRUE.
++      END IF
++
++      nac_parsed = .TRUE.
++      CALL timestop(handle)
++   END SUBROUTINE nac_parse_input
++
++! **************************************************************************************************
++!> \brief Load per-rep settings into scalar working variables and pointer-remap mo_state columns.
++!> \param irep ...
++! **************************************************************************************************
++   SUBROUTINE nac_load_rep_context(irep)
++      INTEGER, INTENT(IN)                                :: irep
++
++      nac_irep = irep
++      nac_use_bmin_bmax = nac_use_bmin_bmax_r(irep)
++      nac_reorder_orbitals = nac_reorder_orbitals_r(irep)
++      nac_occ_active_space = nac_occ_active_space_r(irep)
++      nac_vir_active_space = nac_vir_active_space_r(irep)
++      nac_bmin = nac_bmin_r(irep)
++      nac_bmax = nac_bmax_r(irep)
++      nac_phase_ref_interval = nac_phase_ref_interval_r(irep)
++      nac_filename = nac_filename_r(irep)
++      IF (ALLOCATED(nac_eigtxt_unit_r)) THEN
++         nac_eigtxt_unit(:) = nac_eigtxt_unit_r(:, irep)
++         nac_natxt_unit(:) = nac_natxt_unit_r(:, irep)
++         nac_eigtxt_open(:) = nac_eigtxt_open_r(:, irep)
++         nac_natxt_open(:) = nac_natxt_open_r(:, irep)
++      END IF
++      ! Pointer-remap mo_state to current rep column
++      IF (ASSOCIATED(last_mo_reps)) &
++         last_mo_state(1:SIZE(last_mo_reps, 1)) => last_mo_reps(:, irep)
++      IF (ASSOCIATED(ref_mo_reps)) &
++         ref_mo_state(1:SIZE(ref_mo_reps, 1)) => ref_mo_reps(:, irep)
++   END SUBROUTINE nac_load_rep_context
++
++! **************************************************************************************************
++!> \brief Save filehandle state from scalar working variables back to per-rep storage.
++!> \param irep ...
++! **************************************************************************************************
++   SUBROUTINE nac_save_rep_filehandles(irep)
++      INTEGER, INTENT(IN)                                :: irep
++
++      nac_eigtxt_unit_r(:, irep) = nac_eigtxt_unit(:)
++      nac_natxt_unit_r(:, irep) = nac_natxt_unit(:)
++      nac_eigtxt_open_r(:, irep) = nac_eigtxt_open(:)
++      nac_natxt_open_r(:, irep) = nac_natxt_open(:)
++   END SUBROUTINE nac_save_rep_filehandles
++
++! **************************************************************************************************
++!> \brief Cheap cached check used by qs_tddfpt2_methods to gate tddfpt_save_evects.
++!> \param qs_env ...
++! **************************************************************************************************
++   FUNCTION nac_is_enabled(qs_env) RESULT(enabled)
++      TYPE(qs_environment_type), POINTER                 :: qs_env
++      LOGICAL                                            :: enabled
++
++      IF (.NOT. nac_parsed) CALL nac_parse_input(qs_env)
++      enabled = nac_enabled
++   END FUNCTION nac_is_enabled
++
++! **************************************************************************************************
++!> \brief Main entry: compute NAC for the current MD step and append EIGTXT/NATXT rows.
++!> \param qs_env ...
++! **************************************************************************************************
++   SUBROUTINE nac(qs_env)
++      TYPE(qs_environment_type), POINTER                 :: qs_env
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac'
++
++      INTEGER                                            :: handle, ispin, irep, sim_step
++      LOGICAL                                            :: initial
++      TYPE(cp_fm_type), DIMENSION(:), POINTER            :: nac_matrix, nac_overlap_diff
++      TYPE(dft_control_type), POINTER                    :: dft_control
++      TYPE(cp_logger_type), POINTER                      :: logger
++      TYPE(mo_set_type), ALLOCATABLE, DIMENSION(:)       :: current_mo
++      TYPE(qs_scf_env_type), POINTER                     :: scf_env
++      TYPE(section_vals_type), POINTER                   :: input, nac_section, print_section
++      TYPE(tddfpt2_control_type), POINTER                :: tddfpt_control
++
++      CALL timeset(routineN, handle)
++
++      IF (.NOT. nac_parsed) CALL nac_parse_input(qs_env)
++      IF (.NOT. nac_enabled) THEN
++         CALL timestop(handle)
++         RETURN
++      END IF
++
++      ! New-run self-detect: a fresh MD run reusing process state -> release stale state first
++      sim_step = qs_env%sim_step
++      IF (nac_initialized .AND. sim_step == 0) THEN
++         CALL nac_release()
++         CALL nac_parse_input(qs_env)
++      END IF
++
++      NULLIFY (input, dft_control, scf_env)
++      CALL get_qs_env(qs_env, &
++                      input=input, &
++                      dft_control=dft_control, &
++                      scf_env=scf_env)
++      tddfpt_control => dft_control%tddfpt2_control
++
++      NULLIFY (nac_section, print_section)
++      nac_section => section_vals_get_subs_vals(input, "PROPERTIES%NAC")
++      print_section => section_vals_get_subs_vals(nac_section, "PRINT")
++
++      initial = .NOT. ASSOCIATED(last_mo_reps)
++
++      IF (.NOT. nac_initialized) THEN
++         CALL nac_init(qs_env, scf_env, tddfpt_control)
++         initial = .TRUE.
++      END IF
++
++      IF (.NOT. initial .AND. nac_dt < 0.0_dp) THEN
++         nac_dt = qs_env%sim_time/REAL(qs_env%sim_step, KIND=dp)
++      END IF
++
++      DO irep = 1, nac_n_rep
++         CALL nac_load_rep_context(irep)
++      CALL nac_compute_mo(qs_env, current_mo)
++
++      ! EIGTXT: one row per MD step (band eigenvalues in eV)
++      IF (ALLOCATED(current_mo)) THEN
++         DO ispin = 1, SIZE(current_mo)
++            CALL nac_output_hefei_eig(qs_env, ispin, current_mo(ispin))
++         END DO
++      END IF
++
++      IF (.NOT. initial) THEN
++         CALL nac_compute(qs_env, nac_overlap_diff, current_mo, nac_matrix)
++         DO ispin = 1, SIZE(nac_overlap_diff)
++            CALL nac_output_hefei_nac(qs_env, ispin, nac_overlap_diff(ispin))
++         END DO
++         ! Optional human-readable dump (Hartree, debug only)
++         NULLIFY (logger)
++         logger => cp_get_default_logger()
++         IF (cp_print_key_should_output(logger%iter_info, print_section) /= 0) THEN
++            IF (nac_with_tddfpt) THEN
++               CPWARN("NAC TDDFPT debug print has known numerical issues; use with caution.")
++               BLOCK
++                  TYPE(cp_fm_type), DIMENSION(:), POINTER :: nac_tddfpt_matrix
++                  CALL nac_tddfpt_compute(qs_env, tddfpt_control, current_mo, nac_matrix, nac_tddfpt_matrix)
++                  CALL nac_output_legacy(print_section, nac_tddfpt_matrix)
++                  DO ispin = 1, SIZE(nac_tddfpt_matrix)
++                     CALL cp_fm_release(nac_tddfpt_matrix(ispin))
++                  END DO
++                  DEALLOCATE (nac_tddfpt_matrix)
++               END BLOCK
++            ELSE
++               CALL nac_output_legacy(print_section, nac_matrix)
++            END IF
++         END IF
++      END IF
++
++      ! Structured NAC| status log (master rank, medium print level)
++      CALL nac_log_step(qs_env, initial .AND. irep == 1)
++
++      IF (.NOT. nac_reorder_orbitals) THEN
++         IF ((initial .AND. irep == 1) .OR. MOD(qs_env%sim_step, nac_phase_ref_interval) == 0) &
++            CALL nac_save_ref_mo(qs_env, current_mo)
++      END IF
++      CALL nac_save_last_mo(qs_env, current_mo)
++
++      IF (.NOT. initial) THEN
++         DO ispin = 1, SIZE(nac_matrix)
++            CALL cp_fm_release(nac_matrix(ispin))
++            CALL cp_fm_release(nac_overlap_diff(ispin))
++         END DO
++         DEALLOCATE (nac_matrix, nac_overlap_diff)
++      END IF
++         CALL nac_save_rep_filehandles(irep)
++         IF (ALLOCATED(current_mo)) DEALLOCATE (current_mo)
++      END DO
++
++      CALL timestop(handle)
++   END SUBROUTINE nac
++
++! **************************************************************************************************
++!> \brief First-call initialization.
++! **************************************************************************************************
++   SUBROUTINE nac_init(qs_env, scf_env, tddfpt_control)
++      TYPE(qs_environment_type), POINTER                 :: qs_env
++      TYPE(qs_scf_env_type), POINTER                     :: scf_env
++      TYPE(tddfpt2_control_type), POINTER                :: tddfpt_control
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_init'
++
++      INTEGER                                            :: handle, iunit, irep_init
++      TYPE(cp_logger_type), POINTER                      :: logger
++      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
++      TYPE(scf_control_type), POINTER                    :: scf_control
++
++      CALL timeset(routineN, handle)
++
++      NULLIFY (mos, scf_control)
++      CALL get_qs_env(qs_env, mos=mos, scf_control=scf_control)
++
++      CALL nac_load_rep_context(1)
++
++      ! NAC is a time-derivative coupling: only meaningful when the geometry evolves.
++      ! qs_env%single_point_run is set at qs_env init from GLOBAL%RUN_TYPE
++      ! (.TRUE. for ENERGY / ENERGY_FORCE). qs_env does not expose globenv%run_type_id
++      ! or the root input section, so this flag is the cleanest qs_env-native gate.
++      IF (qs_env%single_point_run) THEN
++         CALL cp_abort(__LOCATION__, &
++            "NAC calculation is only physically defined during Molecular Dynamics. "// &
++            "Set GLOBAL%RUN_TYPE to MOLECULAR_DYNAMICS (or EHRENFEST_DYN / RTP), not ENERGY/ENERGY_FORCE.")
++      END IF
++
++      ! TDDFPT with multiple &NAC blocks is not yet supported (shared evects state)
++      IF (nac_with_tddfpt .AND. nac_n_rep > 1) THEN
++         CPABORT("NAC: TDDFPT with multiple &NAC blocks is not yet supported.")
++      END IF
++
++      IF (scf_env%method == ot_method_nr) THEN
++         ! OT does not store virtual orbital coefficients; need a post-SCF eigensolve
++         nac_do_eigen = .TRUE.
++      ELSE IF (scf_env%method == general_diag_method_nr .OR. &
++               scf_env%method == special_diag_method_nr .OR. &
++               scf_env%method == block_krylov_diag_method_nr .OR. &
++               scf_env%method == block_davidson_diag_method_nr) THEN
++         ! DIAG methods populate qs_env%mos with virtuals via ADDED_MOS; no eigensolve needed
++         nac_do_eigen = .FALSE.
++      ELSE
++         CPABORT("NAC: unsupported SCF method (only OT or standard diagonalization).")
++      END IF
++
++      IF (scf_control%ignore_convergence_failure) THEN
++         logger => cp_get_default_logger()
++         iunit = cp_logger_get_default_io_unit(logger)
++         IF (iunit > 0) THEN
++            WRITE (iunit, '(A)') "NAC| WARNING: IGNORE_CONVERGENCE_FAILURE is enabled in &SCF!"
++            WRITE (iunit, '(A)') "NAC| Unconverged SCF steps may introduce severe, unphysical spikes in NATXT!"
++         END IF
++      END IF
++
++      ! Allocate per-rep mo_set storage and filehandle arrays
++      ALLOCATE (last_mo_reps(SIZE(mos), nac_n_rep))
++      ALLOCATE (ref_mo_reps(SIZE(mos), nac_n_rep))
++      ALLOCATE (nac_eigtxt_unit_r(2, nac_n_rep), nac_natxt_unit_r(2, nac_n_rep))
++      ALLOCATE (nac_eigtxt_open_r(2, nac_n_rep), nac_natxt_open_r(2, nac_n_rep))
++      nac_eigtxt_unit_r = -1
++      nac_natxt_unit_r = -1
++      nac_eigtxt_open_r = .FALSE.
++      nac_natxt_open_r = .FALSE.
++
++      DO irep_init = 1, nac_n_rep
++         CALL nac_load_rep_context(irep_init)
++         IF (nac_with_tddfpt) THEN
++            IF (nac_occ_active_space > 0) THEN
++               CPWARN("NAC+TDDFPT ignores ACTIVE_SPACE_OCC.")
++            END IF
++            nac_occ_active_space = 0
++            IF (nac_vir_active_space > 0) THEN
++               CPWARN("NAC+TDDFPT ignores ACTIVE_SPACE_VIR.")
++            END IF
++            nac_vir_active_space = tddfpt_control%nlumo
++         ELSE
++            ! Mode B: resolve BMIN/BMAX to (occ, vir) counts relative to HOMO
++            IF (nac_use_bmin_bmax) THEN
++               IF (SIZE(mos) > 1) THEN
++                  nac_occ_active_space = MIN(mos(1)%homo, mos(2)%homo) - (nac_bmin - 1)
++                  nac_vir_active_space = nac_bmax - MIN(mos(1)%homo, mos(2)%homo)
++               ELSE
++                  nac_occ_active_space = mos(1)%homo - (nac_bmin - 1)
++                  nac_vir_active_space = nac_bmax - mos(1)%homo
++               END IF
++               IF (nac_occ_active_space < 1) THEN
++                  CPABORT("NAC ACTIVE_SPACE_BMIN is below the first occupied band.")
++               END IF
++               IF (nac_vir_active_space < 1) THEN
++                  CPABORT("NAC ACTIVE_SPACE_BMAX must exceed HOMO.")
++               END IF
++            ELSE
++               IF (nac_occ_active_space <= 0) THEN
++                  CPABORT("NAC requires ACTIVE_SPACE_OCC (or BMIN/BMAX).")
++               END IF
++               IF (nac_vir_active_space <= 0) THEN
++                  CPABORT("NAC requires ACTIVE_SPACE_VIR (or BMIN/BMAX).")
++               END IF
++            END IF
++            IF (SIZE(mos) > 1) THEN
++               IF (nac_occ_active_space > mos(1)%homo .OR. nac_occ_active_space > mos(2)%homo) THEN
++                  CPWARN("NAC ACTIVE_SPACE_OCC exceeds HOMO; clamping.")
++                  nac_occ_active_space = MIN(nac_occ_active_space, mos(1)%homo, mos(2)%homo)
++               END IF
++               IF (nac_vir_active_space > (mos(1)%nao - mos(1)%homo) .OR. &
++                   nac_vir_active_space > (mos(2)%nao - mos(2)%homo)) THEN
++                  CPWARN("NAC ACTIVE_SPACE_VIR exceeds available virtuals; clamping.")
++                  nac_vir_active_space = MIN(nac_vir_active_space, mos(1)%nao - mos(1)%homo, mos(2)%nao - mos(2)%homo)
++               END IF
++            ELSE
++               IF (nac_occ_active_space > mos(1)%homo) THEN
++                  CPWARN("NAC ACTIVE_SPACE_OCC exceeds HOMO; clamping.")
++                  nac_occ_active_space = MIN(nac_occ_active_space, mos(1)%homo)
++               END IF
++               IF (nac_vir_active_space > (mos(1)%nao - mos(1)%homo)) THEN
++                  CPWARN("NAC ACTIVE_SPACE_VIR exceeds available virtuals; clamping.")
++                  nac_vir_active_space = MIN(nac_vir_active_space, mos(1)%nao - mos(1)%homo)
++               END IF
++            END IF
++         END IF
++
++         ! Persist resolved active space values back to _r arrays
++         nac_occ_active_space_r(irep_init) = nac_occ_active_space
++         nac_vir_active_space_r(irep_init) = nac_vir_active_space
++
++         CALL nac_init_last_mo(qs_env)
++         ! ref_mo is only needed for the sign-diagonal (Tsai) path; the Hungarian path uses
++         ! step-to-step sign(diag(overlap)) and has no saved reference.
++         IF (.NOT. nac_reorder_orbitals) CALL nac_init_ref_mo(qs_env)
++         CALL nac_save_rep_filehandles(irep_init)
++      END DO
++
++      nac_dt = -1.0_dp
++      nac_initialized = .TRUE.
++
++      CALL timestop(handle)
++   END SUBROUTINE nac_init
++
++! **************************************************************************************************
++!> \brief Allocate last_mo_state mirroring mos dimensions + active virtual space.
++! **************************************************************************************************
++   SUBROUTINE nac_init_last_mo(qs_env)
++      TYPE(qs_environment_type), POINTER                 :: qs_env
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_init_last_mo'
++
++      INTEGER                                            :: handle, ispin, vir
++      TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
++      TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
++      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
++      TYPE(mp_para_env_type), POINTER                    :: para_env
++
++      CALL timeset(routineN, handle)
++
++      NULLIFY (mos)
++      CALL get_qs_env(qs_env, &
++                      blacs_env=blacs_env, &
++                      para_env=para_env, &
++                      mos=mos)
++
++      CPASSERT(ASSOCIATED(last_mo_state))
++
++      DO ispin = 1, SIZE(mos)
++         IF (nac_vir_active_space <= 0) THEN
++            vir = mos(ispin)%nao - mos(ispin)%homo
++         ELSE
++            vir = nac_vir_active_space
++         END IF
++         CALL cp_fm_struct_create(fm_struct_tmp, &
++                                  context=blacs_env, &
++                                  para_env=para_env, &
++                                  nrow_global=mos(ispin)%nao, &
++                                  ncol_global=mos(ispin)%homo + vir)
++         CALL allocate_mo_set(last_mo_state(ispin), &
++                              mos(ispin)%nao, &
++                              mos(ispin)%homo + vir, &
++                              mos(ispin)%nelectron, &
++                              mos(ispin)%n_el_f, &
++                              mos(ispin)%maxocc, &
++                              mos(ispin)%flexible_electron_count)
++         CALL init_mo_set(mo_set=last_mo_state(ispin), &
++                          fm_struct=fm_struct_tmp, &
++                          name="For saving last MO")
++         CALL cp_fm_struct_release(fm_struct_tmp)
++         CALL cp_fm_init_random(last_mo_state(ispin)%mo_coeff)
++      END DO
++
++      CALL timestop(handle)
++   END SUBROUTINE nac_init_last_mo
++
++! **************************************************************************************************
++!> \brief Allocate ref_mo_state as a duplicate of last_mo_state.
++! **************************************************************************************************
++   SUBROUTINE nac_init_ref_mo(qs_env)
++      TYPE(qs_environment_type), POINTER                 :: qs_env
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_init_ref_mo'
++
++      INTEGER                                            :: handle, ispin
++
++      CALL timeset(routineN, handle)
++
++      CPASSERT(ASSOCIATED(last_mo_state))
++      CPASSERT(ASSOCIATED(ref_mo_state))
++
++      DO ispin = 1, SIZE(last_mo_state)
++         CALL duplicate_mo_set(ref_mo_state(ispin), last_mo_state(ispin))
++      END DO
++
++      CALL timestop(handle)
++   END SUBROUTINE nac_init_ref_mo
++
++! **************************************************************************************************
++!> \brief Obtain canonical MOs including virtuals for the active space.
++!>        OT path: post-SCF eigensolve (OT does not store virtual coefficients).
++!>        DIAG path: direct copy from qs_env%mos (already canonical via ADDED_MOS).
++!>        The OT eigensolve routes through CP2K's eigensolver -> choose_eigv_solver,
++!>        honoring the user's ELPA/ScaLAPACK backend. cholesky_method is sourced from
++!>        scf_env (falls back to cholesky_restore for OT, where it is unset).
++! **************************************************************************************************
++   SUBROUTINE nac_compute_mo(qs_env, current_mo)
++      TYPE(qs_environment_type), POINTER                 :: qs_env
++      TYPE(mo_set_type), ALLOCATABLE, DIMENSION(:)       :: current_mo
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_compute_mo'
++
++      INTEGER                                            :: cholesky_method, handle, ispin
++      TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
++      TYPE(cp_fm_struct_type), POINTER                   :: ao_ao_fm_struct
++      TYPE(cp_fm_type)                                   :: matrix_ks_fm, ortho_fm, work_fm
++      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, matrix_s
++      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
++      TYPE(qs_scf_env_type), POINTER                     :: scf_env
++
++      CALL timeset(routineN, handle)
++
++      NULLIFY (blacs_env, matrix_ks, matrix_s, mos)
++      CALL get_qs_env(qs_env, &
++                      blacs_env=blacs_env, &
++                      mos=mos, &
++                      scf_env=scf_env, &
++                      matrix_ks=matrix_ks, &
++                      matrix_s=matrix_s)
++
++      CPASSERT(ASSOCIATED(last_mo_state))
++      ALLOCATE (current_mo(SIZE(last_mo_state)))
++
++      IF (nac_do_eigen) THEN
++         ! --- OT path: post-SCF eigensolve for canonical orbitals including virtuals ---
++         CALL cp_fm_struct_create(ao_ao_fm_struct, nrow_global=last_mo_state(1)%nao, &
++                                  ncol_global=last_mo_state(1)%nao, context=blacs_env)
++
++         DO ispin = 1, SIZE(last_mo_state)
++            CALL duplicate_mo_set(current_mo(ispin), last_mo_state(ispin))
++
++            CALL cp_fm_create(matrix_ks_fm, ao_ao_fm_struct)
++            CALL cp_fm_create(ortho_fm, ao_ao_fm_struct)
++            CALL cp_fm_create(work_fm, ao_ao_fm_struct)
++
++            CALL copy_dbcsr_to_fm(matrix_s(1)%matrix, ortho_fm)
++            CALL copy_dbcsr_to_fm(matrix_ks(ispin)%matrix, matrix_ks_fm)
++            CALL cp_fm_cholesky_decompose(ortho_fm)
++            cholesky_method = scf_env%cholesky_method
++            IF (cholesky_method <= 0) cholesky_method = cholesky_restore   ! OT never sets it
++            CALL eigensolver(matrix_ks_fm=matrix_ks_fm, mo_set=current_mo(ispin), ortho=ortho_fm, &
++                             work=work_fm, cholesky_method=cholesky_method, &
++                             do_level_shift=.FALSE., level_shift=0.0_dp, use_jacobi=.FALSE.)
++            CALL cp_fm_release(matrix_ks_fm)
++            CALL cp_fm_release(ortho_fm)
++            CALL cp_fm_release(work_fm)
++         END DO
++
++         CALL cp_fm_struct_release(ao_ao_fm_struct)
++      ELSE
++         ! --- DIAG path: copy canonical MOs from qs_env%mos (already includes ADDED_MOS virtuals) ---
++         DO ispin = 1, SIZE(last_mo_state)
++            IF (mos(ispin)%nmo < mos(ispin)%homo + nac_vir_active_space) THEN
++               CPABORT("NAC: SCF%ADDED_MOS too small; increase to cover ACTIVE_SPACE_VIR virtuals.")
++            END IF
++            ! Template from last_mo_state so nmo = homo + vir (matches ref_mo and the OT path)
++            CALL duplicate_mo_set(current_mo(ispin), last_mo_state(ispin))
++            ! Overwrite with SCF-converged canonical orbitals (first nmo columns of mos)
++            CALL cp_fm_to_fm(mos(ispin)%mo_coeff, current_mo(ispin)%mo_coeff, &
++                             current_mo(ispin)%nmo, 1, 1)
++            current_mo(ispin)%eigenvalues(1:current_mo(ispin)%nmo) = &
++               mos(ispin)%eigenvalues(1:current_mo(ispin)%nmo)
++         END DO
++      END IF
++
++      CALL timestop(handle)
++   END SUBROUTINE nac_compute_mo
++
++! **************************************************************************************************
++!> \brief Compute the GS NAC matrix. Also exposes the raw dimensionless antisymmetric
++!>        overlap difference (O_ij - O_ji) for Hefei-NAMD NATXT (no dt factor, diag=0).
++! **************************************************************************************************
++   SUBROUTINE nac_compute(qs_env, nac_overlap_diff, current_mo, nac_matrix)
++      TYPE(qs_environment_type), POINTER                 :: qs_env
++      TYPE(cp_fm_type), DIMENSION(:), POINTER            :: nac_overlap_diff, nac_matrix
++      TYPE(mo_set_type), ALLOCATABLE, DIMENSION(:)       :: current_mo
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_compute'
++
++      INTEGER                                            :: handle, imo, ispin, nc_diff, nr_diff
++      REAL(kind=dp), ALLOCATABLE, DIMENSION(:)           :: current_eigenvalues, last_eigenvalues
++      TYPE(cp_blacs_env_type), POINTER                   :: ctx_diff
++      TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_diff
++      TYPE(cp_fm_type), POINTER                          :: current_mo_coeff, current_smo, &
++                                                            last_mo_coeff, last_smo, &
++                                                            nac_matrix_back, nac_matrix_mid
++      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
++      TYPE(mp_para_env_type), POINTER                    :: pe_diff
++
++      CALL timeset(routineN, handle)
++
++      CPASSERT(ASSOCIATED(last_mo_state))
++      ! ref_mo_state is only allocated on the sign-diagonal (Tsai) path; the Hungarian path
++      ! uses step-to-step phase and has no saved reference.
++      IF (.NOT. nac_reorder_orbitals) THEN
++         CPASSERT(ASSOCIATED(ref_mo_state))
++      END IF
++      CALL get_qs_env(qs_env, matrix_s=matrix_s)
++
++      ALLOCATE (nac_matrix(SIZE(last_mo_state)))
++      ALLOCATE (nac_overlap_diff(SIZE(last_mo_state)))
++
++      DO ispin = 1, SIZE(last_mo_state)
++         ALLOCATE (nac_matrix_back, nac_matrix_mid, last_mo_coeff, current_mo_coeff, current_smo, last_smo)
++
++         ! Phase correction against saved ref_mo (Tsai path). Skipped when REORDER_ORBITALS,
++         ! which instead uses step-to-step sign(diag(overlap)) after Hungarian matching below.
++         IF (.NOT. nac_reorder_orbitals) THEN
++            CALL nac_phase_correction(matrix_s(1)%matrix, ref_mo_state(ispin), last_mo_state(ispin))
++            CALL nac_phase_correction(matrix_s(1)%matrix, ref_mo_state(ispin), current_mo(ispin))
++         END IF
++
++         CALL nac_get_active_space(qs_env, &
++                                   last_mo_state(ispin), &
++                                   nac_occ_active_space, &
++                                   nac_vir_active_space, &
++                                   last_mo_coeff, &
++                                   last_eigenvalues)
++         CALL nac_get_active_space(qs_env, &
++                                   current_mo(ispin), &
++                                   nac_occ_active_space, &
++                                   nac_vir_active_space, &
++                                   current_mo_coeff, &
++                                   current_eigenvalues)
++         CALL nac_get_smo(matrix_s(1)%matrix, last_mo_coeff, last_smo)
++         CALL nac_get_smo(matrix_s(1)%matrix, current_mo_coeff, current_smo)
++
++         ! intermediates (SMO basis): O(t,t+dt) and O(t+dt,t)
++         CALL nac_compute_nac(current_smo, last_mo_coeff, nac_matrix_back)   ! = O(t+dt,t) -> O_ji
++         CALL nac_compute_nac(last_smo, last_mo_coeff, nac_matrix_mid)       ! ~ I (orthonormality)
++         CALL nac_compute_nac(last_smo, current_mo_coeff, nac_matrix(ispin)) ! = O(t,t+dt) -> O_ij
++
++         ! Hungarian orbital matching + step-to-step phase (CA-NAC chain). Operates on a small
++         ! gathered n_active x n_active matrix (replicated on all ranks; deterministic KM, no MPI).
++         ! Reorders O_ij columns and O_ji rows by perm so orbital i keeps identity across steps,
++         ! then flips signs so diag(O_ij) > 0. Done in place on the cp_fm; the overlap_diff and
++         ! dt-scaled coupling code below then runs on the reordered/phased matrices unchanged.
++         IF (nac_reorder_orbitals) THEN
++            CALL nac_hungarian_reorder_phase(nac_matrix(ispin), nac_matrix_back)
++         END IF
++
++         ! Hefei-NAMD NATXT value: raw O_ij - O_ji (dimensionless, antisymmetric, diag=0).
++         ! cp_fm_type has no ASSIGNMENT(=) interface (pointer components are shallow-copied),
++         ! so create the target with a cloned struct and fill it directly (no tmp, no shallow assign).
++         NULLIFY (ctx_diff, fm_struct_diff, pe_diff)
++         CALL cp_fm_get_info(nac_matrix(ispin), nrow_global=nr_diff, ncol_global=nc_diff, &
++                             context=ctx_diff, para_env=pe_diff)
++         CALL cp_fm_struct_create(fm_struct_diff, context=ctx_diff, para_env=pe_diff, &
++                                  nrow_global=nr_diff, ncol_global=nc_diff)
++         CALL cp_fm_create(nac_overlap_diff(ispin), fm_struct_diff)
++         CALL cp_fm_struct_release(fm_struct_diff)
++         CALL cp_fm_to_fm(nac_matrix(ispin), nac_overlap_diff(ispin))                ! = O_ij
++         CALL cp_fm_scale_and_add(1.0_dp, nac_overlap_diff(ispin), -1.0_dp, nac_matrix_back)  ! - O_ji
++
++         ! CP2K internal coupling: d_ij = (O_ij - O_ji)/(2 dt), eigenvalues on diagonal
++         CPASSERT(nac_dt > 0.0_dp)
++         CALL cp_fm_scale_and_add(1.0_dp, nac_matrix(ispin), -1.0_dp, nac_matrix_mid)
++         CALL cp_fm_scale_and_add(0.5_dp/nac_dt, nac_matrix(ispin), &
++                                  -0.5_dp/nac_dt, nac_matrix_back)
++         DO imo = 1, SIZE(current_eigenvalues)
++            CALL cp_fm_set_element(nac_matrix(ispin), imo, imo, &
++                                   (current_eigenvalues(imo) + last_eigenvalues(imo))/2.0_dp)
++         END DO
++
++         CALL cp_fm_release(current_mo_coeff)
++         CALL cp_fm_release(last_mo_coeff)
++         CALL cp_fm_release(current_smo)
++         CALL cp_fm_release(last_smo)
++         CALL cp_fm_release(nac_matrix_back)
++         CALL cp_fm_release(nac_matrix_mid)
++         DEALLOCATE (nac_matrix_back, nac_matrix_mid, current_mo_coeff, last_mo_coeff, &
++                     current_smo, last_smo, current_eigenvalues, last_eigenvalues)
++      END DO
++
++      CALL timestop(handle)
++   END SUBROUTINE nac_compute
++
++! **************************************************************************************************
++!> \brief Build the S^{-1/2}-weighted active-space matrix for the TDDFPT-NAC path.
++! **************************************************************************************************
++   SUBROUTINE nac_tddfpt_compute_s(qs_env, current_mo, s_matrix, nac_matrix, sub_nac_matrix)
++      TYPE(qs_environment_type), POINTER                 :: qs_env
++      TYPE(mo_set_type), ALLOCATABLE, DIMENSION(:)       :: current_mo
++      TYPE(cp_fm_type), DIMENSION(:), POINTER            :: s_matrix, nac_matrix, sub_nac_matrix
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_tddfpt_compute_s'
++
++      INTEGER                                            :: handle, iocc, ispin, ivir, occ, vir
++      REAL(kind=dp), ALLOCATABLE, DIMENSION(:, :)        :: eigenvalues
++      TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
++      TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
++      TYPE(mp_para_env_type), POINTER                    :: para_env
++
++      CALL timeset(routineN, handle)
++
++      CALL get_qs_env(qs_env, &
++                      blacs_env=blacs_env, &
++                      para_env=para_env)
++
++      DO ispin = 1, SIZE(current_mo)
++         IF (nac_occ_active_space <= 0) THEN
++            occ = current_mo(ispin)%homo
++         ELSE
++            occ = nac_occ_active_space
++         END IF
++         IF (nac_vir_active_space <= 0) THEN
++            vir = current_mo(ispin)%nao - current_mo(ispin)%homo
++         ELSE
++            vir = nac_vir_active_space
++         END IF
++         ALLOCATE (eigenvalues(1, current_mo(ispin)%nmo))
++         eigenvalues = RESHAPE(current_mo(ispin)%eigenvalues, (/1, current_mo(ispin)%nmo/))
++         CALL cp_fm_struct_create(fm_struct_tmp, &
++                                  context=blacs_env, &
++                                  para_env=para_env, &
++                                  nrow_global=occ, &
++                                  ncol_global=vir)
++         CALL cp_fm_create(s_matrix(ispin), fm_struct_tmp)
++         CALL cp_fm_create(sub_nac_matrix(ispin), fm_struct_tmp)
++         CALL cp_fm_struct_release(fm_struct_tmp)
++
++         DO iocc = 1, occ
++            CALL cp_fm_set_submatrix(s_matrix(ispin), eigenvalues(:, occ + 1:), iocc, 1, 1, vir)
++         END DO
++         DO ivir = 1, vir
++            CALL cp_fm_set_submatrix(s_matrix(ispin), eigenvalues(:, :occ), 1, ivir, occ, 1, -1.0_dp, 1.0_dp)
++         END DO
++         CALL cp_fm_pow(s_matrix(ispin), -0.5_dp)
++
++         CALL cp_fm_to_fm_submat(nac_matrix(ispin), &
++                                 sub_nac_matrix(ispin), &
++                                 occ, &
++                                 vir, &
++                                 1, &
++                                 occ + 1, &
++                                 1, &
++                                 1)
++         DEALLOCATE (eigenvalues)
++      END DO
++
++      CALL timestop(handle)
++   END SUBROUTINE nac_tddfpt_compute_s
++
++! **************************************************************************************************
++!> \brief TDDFPT-NAC coupling matrix (singlet excitations).
++! **************************************************************************************************
++   SUBROUTINE nac_tddfpt_compute(qs_env, tddfpt_control, current_mo, nac_matrix, nac_tddfpt_matrix)
++      TYPE(qs_environment_type), POINTER                 :: qs_env
++      TYPE(tddfpt2_control_type), POINTER                :: tddfpt_control
++      TYPE(mo_set_type), ALLOCATABLE, DIMENSION(:)       :: current_mo
++      TYPE(cp_fm_type), DIMENSION(:), POINTER            :: nac_matrix, nac_tddfpt_matrix
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_tddfpt_compute'
++
++      INTEGER                                            :: handle, ispin, istate
++      REAL(kind=dp)                                      :: summary
++      REAL(kind=dp), DIMENSION(:, :), POINTER            :: a, b
++      REAL(kind=dp), EXTERNAL                            :: DDOT
++      TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
++      TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
++      TYPE(cp_fm_type), DIMENSION(:), POINTER            :: s_matrix, sub_nac_matrix
++      TYPE(mp_comm_type)                                 :: group
++      TYPE(mp_para_env_type), POINTER                    :: para_env
++
++      CALL timeset(routineN, handle)
++
++      ALLOCATE (nac_tddfpt_matrix(SIZE(nac_matrix)))
++
++      CALL get_qs_env(qs_env, &
++                      blacs_env=blacs_env, &
++                      para_env=para_env)
++      CALL cp_fm_struct_create(fm_struct_tmp, &
++                               context=blacs_env, &
++                               para_env=para_env, &
++                               nrow_global=tddfpt_control%nstates + 1, &
++                               ncol_global=tddfpt_control%nstates + 1)
++      DO ispin = 1, SIZE(nac_matrix)
++         CALL cp_fm_create(nac_tddfpt_matrix(ispin), fm_struct_tmp)
++         CALL cp_fm_set_all(nac_tddfpt_matrix(ispin), 0.0_dp)
++      END DO
++      CALL cp_fm_struct_release(fm_struct_tmp)
++
++      ALLOCATE (s_matrix(SIZE(nac_matrix)), sub_nac_matrix(SIZE(nac_matrix)))
++      CALL nac_tddfpt_compute_s(qs_env, current_mo, s_matrix, nac_matrix, sub_nac_matrix)
++
++      CPASSERT(ASSOCIATED(tddfpt_evects_state) .AND. ASSOCIATED(tddfpt_evals_state))
++      DO ispin = 1, SIZE(nac_matrix)
++         CALL cp_fm_schur_product(s_matrix(ispin), sub_nac_matrix(ispin), s_matrix(ispin))
++         DO istate = 1, tddfpt_control%nstates
++            summary = 0.0_dp
++            a => s_matrix(ispin)%local_data
++            b => tddfpt_evects_state(ispin, istate)%local_data
++            summary = DDOT(SIZE(a), a(1, 1), 1, b(1, 1), 1)
++            group = s_matrix(ispin)%matrix_struct%para_env
++            CALL group%sum(summary)
++            summary = summary*tddfpt_evals_state(istate)**0.5_dp
++            CALL cp_fm_set_element(nac_tddfpt_matrix(ispin), 1, istate + 1, summary)
++            CALL cp_fm_set_element(nac_tddfpt_matrix(ispin), istate + 1, 1, -summary)
++            CALL cp_fm_set_element(nac_tddfpt_matrix(ispin), istate + 1, istate + 1, &
++                                   tddfpt_evals_state(istate))
++            NULLIFY (a, b)
++         END DO
++      END DO
++
++      DO ispin = 1, SIZE(current_mo)
++         CALL cp_fm_release(s_matrix(ispin))
++         CALL cp_fm_release(sub_nac_matrix(ispin))
++      END DO
++      DEALLOCATE (s_matrix, sub_nac_matrix)
++
++      CALL timestop(handle)
++   END SUBROUTINE nac_tddfpt_compute
++
++! **************************************************************************************************
++!> \brief Extract the active-space MO coefficients + eigenvalues (highest-occupied-first slice).
++! **************************************************************************************************
++   SUBROUTINE nac_get_active_space(qs_env, mo, occ_active_space, vir_active_space, mo_coeff, eigenvalues)
++      TYPE(qs_environment_type), POINTER                 :: qs_env
++      TYPE(mo_set_type)                                  :: mo
++      INTEGER                                            :: occ_active_space, vir_active_space
++      TYPE(cp_fm_type), POINTER                          :: mo_coeff
++      REAL(kind=dp), ALLOCATABLE, DIMENSION(:)           :: eigenvalues
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_get_active_space'
++
++      INTEGER                                            :: handle, nao, nmo, occ, vir
++      TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
++      TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
++      TYPE(mp_para_env_type), POINTER                    :: para_env
++
++      CALL timeset(routineN, handle)
++
++      CALL get_qs_env(qs_env, &
++                      blacs_env=blacs_env, &
++                      para_env=para_env)
++
++      nao = mo%nao
++      IF (occ_active_space <= 0) THEN
++         occ = mo%homo
++      ELSE
++         occ = occ_active_space
++      END IF
++      IF (vir_active_space <= 0) THEN
++         vir = nao - mo%homo
++      ELSE
++         vir = vir_active_space
++      END IF
++      nmo = occ + vir
++      CALL cp_fm_struct_create(fm_struct_tmp, &
++                               context=blacs_env, &
++                               para_env=para_env, &
++                               nrow_global=nao, &
++                               ncol_global=nmo)
++
++      ALLOCATE (eigenvalues(nmo))
++
++      CALL cp_fm_create(mo_coeff, fm_struct_tmp)
++      CALL cp_fm_struct_release(fm_struct_tmp)
++      CALL cp_fm_to_fm(mo%mo_coeff, &
++                       mo_coeff, &
++                       occ + vir, &
++                       mo%nmo - vir - occ + 1, &
++                       1)
++      eigenvalues(:) = mo%eigenvalues(mo%nmo - vir - occ + 1:)
++
++      CALL timestop(handle)
++   END SUBROUTINE nac_get_active_space
++
++! **************************************************************************************************
++!> \brief smo = matrix_s . mo_coeff  (AO overlap applied to MO coefficients)
++! **************************************************************************************************
++   SUBROUTINE nac_get_smo(matrix_s, mo_coeff, smo)
++      TYPE(dbcsr_type), POINTER                          :: matrix_s
++      TYPE(cp_fm_type), POINTER                          :: mo_coeff
++      TYPE(cp_fm_type)                                   :: smo
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_get_smo'
++
++      INTEGER                                            :: handle, nao, nmo
++      TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
++      TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
++      TYPE(mp_para_env_type), POINTER                    :: para_env
++
++      CALL timeset(routineN, handle)
++
++      CALL cp_fm_get_info(mo_coeff, &
++                          nrow_global=nao, &
++                          ncol_global=nmo, &
++                          context=blacs_env, &
++                          para_env=para_env)
++      CALL cp_fm_struct_create(fm_struct_tmp, &
++                               context=blacs_env, &
++                               para_env=para_env, &
++                               nrow_global=nao, &
++                               ncol_global=nmo)
++      CALL cp_fm_create(smo, fm_struct_tmp)
++      CALL cp_fm_struct_release(fm_struct_tmp)
++      CALL cp_dbcsr_sm_fm_multiply(matrix_s, &
++                                   mo_coeff, &
++                                   smo, &
++                                   ncol=nmo, &
++                                   alpha=1.0_dp, &
++                                   beta=0.0_dp)
++      CALL timestop(handle)
++   END SUBROUTINE nac_get_smo
++
++! **************************************************************************************************
++!> \brief nac_matrix = smo^T . mo   (MO overlap block)
++! **************************************************************************************************
++   SUBROUTINE nac_compute_nac(smo, mo, nac_matrix)
++      TYPE(cp_fm_type), POINTER                          :: smo, mo
++      TYPE(cp_fm_type)                                   :: nac_matrix
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_compute_nac'
++
++      INTEGER                                            :: handle, nao, nmo
++      TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
++      Type(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
++      TYPE(mp_para_env_type), POINTER                    :: para_env
++
++      CALL timeset(routineN, handle)
++
++      CALL cp_fm_get_info(mo, &
++                          nrow_global=nao, &
++                          ncol_global=nmo, &
++                          context=blacs_env, &
++                          para_env=para_env)
++      CALL cp_fm_struct_create(fm_struct_tmp, &
++                               context=blacs_env, &
++                               para_env=para_env, &
++                               nrow_global=nmo, &
++                               ncol_global=nmo)
++      CALL cp_fm_create(nac_matrix, fm_struct_tmp)
++      CALL cp_fm_struct_release(fm_struct_tmp)
++      CALL cp_fm_gemm('T', 'N', nmo, nmo, nao, 1.0_dp, smo, mo, 0.0_dp, nac_matrix)
++
++      CALL timestop(handle)
++   END SUBROUTINE nac_compute_nac
++
++! **************************************************************************************************
++!> \brief Move current canonical MOs into last_mo_state for the next step.
++! **************************************************************************************************
++   SUBROUTINE nac_save_last_mo(qs_env, current_mo)
++      TYPE(qs_environment_type), POINTER                 :: qs_env
++      TYPE(mo_set_type), ALLOCATABLE, DIMENSION(:)       :: current_mo
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_save_last_mo'
++
++      INTEGER                                            :: handle, ispin
++
++      CALL timeset(routineN, handle)
++
++      CPASSERT(ASSOCIATED(last_mo_state))
++      DO ispin = 1, SIZE(current_mo)
++         CALL reassign_allocated_mos(last_mo_state(ispin), current_mo(ispin))
++         CALL deallocate_mo_set(current_mo(ispin))
++      END DO
++
++      DEALLOCATE (current_mo)
++
++      CALL timestop(handle)
++   END SUBROUTINE nac_save_last_mo
++
++! **************************************************************************************************
++!> \brief Phase correction reference: refresh every PHASE_REF_INTERVAL steps.
++! **************************************************************************************************
++   SUBROUTINE nac_save_ref_mo(qs_env, current_mo)
++      TYPE(qs_environment_type), POINTER                 :: qs_env
++      TYPE(mo_set_type), ALLOCATABLE, DIMENSION(:)       :: current_mo
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_save_ref_mo'
++
++      INTEGER                                            :: handle, ispin
++
++      CALL timeset(routineN, handle)
++
++      CPASSERT(ASSOCIATED(ref_mo_state))
++      DO ispin = 1, SIZE(current_mo)
++         CALL reassign_allocated_mos(ref_mo_state(ispin), current_mo(ispin))
++      END DO
++
++      CALL timestop(handle)
++   END SUBROUTINE nac_save_ref_mo
++
++! **************************************************************************************************
++!> \brief Random-sign phase correction against the reference MO set (f_i = sign[ (C^† S C')_ii ]).
++! **************************************************************************************************
++   SUBROUTINE nac_phase_correction(matrix_s, ref_mo, mo)
++      TYPE(dbcsr_type), POINTER                          :: matrix_s
++      TYPE(mo_set_type)                                  :: ref_mo, mo
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_phase_correction'
++
++      INTEGER                                            :: handle
++      REAL(kind=dp), ALLOCATABLE, DIMENSION(:)           :: phase_correction
++      TYPE(cp_fm_type), POINTER                          :: matrix, smo
++
++      CALL timeset(routineN, handle)
++
++      ALLOCATE (phase_correction(mo%nmo), matrix, smo)
++      CALL nac_get_smo(matrix_s, ref_mo%mo_coeff, smo)
++      CALL nac_compute_nac(smo, mo%mo_coeff, matrix)
++      CALL cp_fm_get_diag(matrix, phase_correction)
++      WHERE (ABS(phase_correction) > 1.0e-12_dp)
++         phase_correction = phase_correction/ABS(phase_correction)
++      ELSEWHERE
++         phase_correction = 1.0_dp
++      END WHERE
++      CALL cp_fm_column_scale(mo%mo_coeff, phase_correction)
++      DEALLOCATE (phase_correction, matrix, smo)
++
++      CALL timestop(handle)
++   END SUBROUTINE nac_phase_correction
++
++! **************************************************************************************************
++!> \brief Append one EIGTXT row: active-space band eigenvalues in eV.
++!>        Master rank only; file opened APPEND on first call, kept open until nac_release.
++! **************************************************************************************************
++   SUBROUTINE nac_output_hefei_eig(qs_env, ispin, mo)
++      TYPE(qs_environment_type), POINTER                 :: qs_env
++      INTEGER                                            :: ispin
++      TYPE(mo_set_type)                                  :: mo
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_output_hefei_eig'
++
++      CHARACTER(LEN=256)                                 :: fname
++      INTEGER                                            :: handle, i, n_active, occ, vir
++      REAL(kind=dp), ALLOCATABLE, DIMENSION(:)           :: eigenvalues, eig_eV
++      TYPE(mp_para_env_type), POINTER                    :: para_env
++
++      CALL timeset(routineN, handle)
++
++      CALL get_qs_env(qs_env, para_env=para_env)
++
++      occ = nac_occ_active_space; IF (occ <= 0) occ = mo%homo
++      vir = nac_vir_active_space; IF (vir <= 0) vir = mo%nao - mo%homo
++      n_active = occ + vir
++
++      ALLOCATE (eigenvalues(n_active), eig_eV(n_active))
++      eigenvalues(:) = mo%eigenvalues(mo%nmo - vir - occ + 1:)
++      eig_eV(:) = eigenvalues(:)*HARTREE_to_eV
++
++      IF (para_env%is_source()) THEN
++         IF (.NOT. nac_eigtxt_open(ispin)) THEN
++            IF (ispin == 1) THEN
++               fname = TRIM(nac_filename)//".EIGTXT"
++            ELSE
++               WRITE (fname, '(A,A,I0,A)') TRIM(nac_filename), "_s", ispin, ".EIGTXT"
++            END IF
++            OPEN (NEWUNIT=nac_eigtxt_unit(ispin), FILE=TRIM(fname), STATUS='REPLACE', ACTION='WRITE', &
++                  POSITION='APPEND')
++            nac_eigtxt_open(ispin) = .TRUE.
++         END IF
++         WRITE (nac_eigtxt_unit(ispin), FMT='(100000(ES26.18E3,1X))') (eig_eV(i), i=1, n_active)
++         FLUSH (nac_eigtxt_unit(ispin))
++      END IF
++
++      DEALLOCATE (eigenvalues, eig_eV)
++      CALL timestop(handle)
++   END SUBROUTINE nac_output_hefei_eig
++
++! **************************************************************************************************
++!> \brief Append one NATXT row: n_active*n_active flattened values of the raw
++!>        dimensionless antisymmetric overlap difference (O_ij - O_ji). diag=0.
++!>        Matches abacus-namd NACfunc.SaveNAC reshape(nstep-1, ibands*ibands).
++! **************************************************************************************************
++   SUBROUTINE nac_output_hefei_nac(qs_env, ispin, overlap_diff)
++      TYPE(qs_environment_type), POINTER                 :: qs_env
++      INTEGER                                            :: ispin
++      TYPE(cp_fm_type)                                   :: overlap_diff
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_output_hefei_nac'
++
++      CHARACTER(LEN=256)                                 :: fname
++      INTEGER                                            :: handle, i, j, n_active
++      REAL(kind=dp), ALLOCATABLE, DIMENSION(:, :)        :: buf
++      TYPE(mp_para_env_type), POINTER                    :: para_env
++
++      CALL timeset(routineN, handle)
++
++      CALL get_qs_env(qs_env, para_env=para_env)
++      CALL cp_fm_get_info(overlap_diff, nrow_global=n_active)
++
++      ALLOCATE (buf(n_active, n_active))
++      ! Gather the full distributed matrix into a local array (replicated on all ranks)
++      CALL cp_fm_get_submatrix(overlap_diff, buf, 1, 1, n_active, n_active)
++
++      IF (para_env%is_source()) THEN
++         IF (.NOT. nac_natxt_open(ispin)) THEN
++            IF (ispin == 1) THEN
++               fname = TRIM(nac_filename)//".NATXT"
++            ELSE
++               WRITE (fname, '(A,A,I0,A)') TRIM(nac_filename), "_s", ispin, ".NATXT"
++            END IF
++            OPEN (NEWUNIT=nac_natxt_unit(ispin), FILE=TRIM(fname), STATUS='REPLACE', ACTION='WRITE', &
++                  POSITION='APPEND')
++            nac_natxt_open(ispin) = .TRUE.
++         END IF
++         ! Row-major (C-order) flatten to match numpy: O_ij - O_ji for i outer, j inner
++         WRITE (nac_natxt_unit(ispin), FMT='(1000000(ES26.18E3,1X))') ((buf(i, j), j=1, n_active), i=1, n_active)
++         FLUSH (nac_natxt_unit(ispin))
++      END IF
++
++      DEALLOCATE (buf)
++      CALL timestop(handle)
++   END SUBROUTINE nac_output_hefei_nac
++
++! **************************************************************************************************
++!> \brief Master-rank structured status logging with the NAC| prefix, gated on medium print level.
++! **************************************************************************************************
++   SUBROUTINE nac_log_step(qs_env, initial)
++      TYPE(qs_environment_type), POINTER                 :: qs_env
++      LOGICAL, INTENT(IN)                                :: initial
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_log_step'
++
++      INTEGER                                            :: handle, iunit
++      TYPE(cp_logger_type), POINTER                      :: logger
++
++      CALL timeset(routineN, handle)
++
++      NULLIFY (logger)
++      logger => cp_get_default_logger()
++
++      IF (logger%iter_info%print_level >= medium_print_level) THEN
++         iunit = cp_logger_get_default_io_unit(logger)   ! already skips non-ionode
++         IF (iunit > 0) THEN
++            IF (initial) THEN
++               WRITE (iunit, '(A)') "NAC| Initial step: reference MO set established (no coupling computed yet)."
++               WRITE (iunit, '(A,I0,A,I0)') "NAC| Active Space  Occupied: ", nac_occ_active_space, &
++                  "  Virtual: ", nac_vir_active_space
++               WRITE (iunit, '(A,A,A)') "NAC| Energies written to ", TRIM(nac_filename), ".EIGTXT"
++            ELSE
++               WRITE (iunit, '(A,I0,A,F10.2,A)') "NAC| Step: ", qs_env%sim_step, &
++                  "  Time: ", qs_env%sim_time*2.418884326505e-2_dp, " fs  Phase Alignment: Completed"
++               WRITE (iunit, '(A,I0,A,I0)') "NAC| Active Space  Occupied: ", nac_occ_active_space, &
++                  "  Virtual: ", nac_vir_active_space
++               IF (nac_with_tddfpt) THEN
++                  WRITE (iunit, '(A,A,A)') "NAC| Ground-state band energies written to ", &
++                     TRIM(nac_filename), ".EIGTXT; couplings to .NATXT (TDDFPT excitation couplings in .nacLog if PRINT enabled)"
++               ELSE
++                  WRITE (iunit, '(A,A,A)') "NAC| Energies and couplings successfully written to ", &
++                     TRIM(nac_filename), ".EIGTXT / .NATXT"
++               END IF
++            END IF
++            FLUSH (iunit)
++         END IF
++      END IF
++
++      CALL timestop(handle)
++   END SUBROUTINE nac_log_step
++
++! **************************************************************************************************
++!> \brief Optional human-readable dump (Hartree) for debugging; gated on PROPERTIES%NAC%PRINT.
++! **************************************************************************************************
++   SUBROUTINE nac_output_legacy(print_section, matrix)
++      TYPE(section_vals_type), POINTER                   :: print_section
++      TYPE(cp_fm_type), DIMENSION(:), POINTER            :: matrix
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_output_legacy'
++
++      CHARACTER(LEN=256)                                 :: unit_str
++      INTEGER                                            :: handle, ispin, unit
++      TYPE(cp_fm_type)                                   :: tmp_fm
++      TYPE(cp_logger_type), POINTER                      :: logger
++
++      CALL timeset(routineN, handle)
++
++      NULLIFY (logger)
++      logger => cp_get_default_logger()
++
++      IF (cp_print_key_should_output(logger%iter_info, print_section) /= 0) THEN
++         CALL section_vals_val_get(print_section, "UNIT", c_val=unit_str)
++         unit = cp_print_key_unit_nr(logger, print_section, extension=".nacLog", file_status="REPLACE")
++         DO ispin = 1, SIZE(matrix)
++            CALL cp_fm_create(tmp_fm, matrix(ispin)%matrix_struct)
++            CALL cp_fm_to_fm(matrix(ispin), tmp_fm)
++            CALL cp_fm_scale_and_add(cp_unit_from_cp2k(1.0_dp, TRIM(unit_str)), tmp_fm)
++            CALL cp_fm_write_formatted(tmp_fm, unit)
++            CALL cp_fm_release(tmp_fm)
++         END DO
++         CALL cp_print_key_finished_output(unit, logger, print_section)
++      END IF
++
++      CALL timestop(handle)
++   END SUBROUTINE nac_output_legacy
++
++! **************************************************************************************************
++!> \brief Ownership-stealing setter: receive TDDFPT Ritz vectors + eigenvalues (stashed by
++!>        qs_tddfpt2_restart.tddfpt_save_evects) into module SAVE state. Releases prior state.
++! **************************************************************************************************
++   SUBROUTINE nac_set_tddfpt_data(evects, evals)
++      TYPE(cp_fm_type), DIMENSION(:, :), POINTER         :: evects
++      REAL(kind=dp), DIMENSION(:), POINTER               :: evals
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_set_tddfpt_data'
++
++      INTEGER                                            :: handle, ispin, istate
++
++      CALL timeset(routineN, handle)
++
++      IF (ASSOCIATED(tddfpt_evects_state)) THEN
++         DO istate = 1, SIZE(tddfpt_evects_state, 2)
++            DO ispin = 1, SIZE(tddfpt_evects_state, 1)
++               CALL cp_fm_release(tddfpt_evects_state(ispin, istate))
++            END DO
++         END DO
++         DEALLOCATE (tddfpt_evects_state)
++      END IF
++      IF (ASSOCIATED(tddfpt_evals_state)) DEALLOCATE (tddfpt_evals_state)
++
++      tddfpt_evects_state => evects
++      tddfpt_evals_state => evals
++      NULLIFY (evects, evals)
++
++      CALL timestop(handle)
++   END SUBROUTINE nac_set_tddfpt_data
++
++! **************************************************************************************************
++!> \brief Release all module SAVE state (MO sets, TDDFPT arrays, file handles, cached flags).
++!        Called from qs_energy_utils.F finalize + self-detect at the start of a new MD run.
++! **************************************************************************************************
++   SUBROUTINE nac_release()
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_release'
++
++      INTEGER                                            :: handle, i, irep, ispin, istate
++
++      CALL timeset(routineN, handle)
++
++      IF (ASSOCIATED(last_mo_reps)) THEN
++         DO irep = 1, nac_n_rep
++            ! Close files for this rep (load from _r arrays into scalar working vars)
++            nac_eigtxt_unit(:) = nac_eigtxt_unit_r(:, irep)
++            nac_natxt_unit(:) = nac_natxt_unit_r(:, irep)
++            nac_eigtxt_open(:) = nac_eigtxt_open_r(:, irep)
++            nac_natxt_open(:) = nac_natxt_open_r(:, irep)
++            DO i = 1, 2
++               IF (nac_eigtxt_open(i)) THEN
++                  CLOSE (nac_eigtxt_unit(i))
++                  nac_eigtxt_unit(i) = -1
++                  nac_eigtxt_open(i) = .FALSE.
++               END IF
++               IF (nac_natxt_open(i)) THEN
++                  CLOSE (nac_natxt_unit(i))
++                  nac_natxt_unit(i) = -1
++                  nac_natxt_open(i) = .FALSE.
++               END IF
++            END DO
++            nac_eigtxt_unit_r(:, irep) = nac_eigtxt_unit(:)
++            nac_natxt_unit_r(:, irep) = nac_natxt_unit(:)
++            nac_eigtxt_open_r(:, irep) = nac_eigtxt_open(:)
++            nac_natxt_open_r(:, irep) = nac_natxt_open(:)
++            ! Deallocate mo_sets for this rep
++            DO ispin = 1, SIZE(last_mo_reps, 1)
++               IF (ASSOCIATED(last_mo_reps(ispin, irep)%mo_coeff)) &
++                  CALL deallocate_mo_set(last_mo_reps(ispin, irep))
++               IF (ASSOCIATED(ref_mo_reps(ispin, irep)%mo_coeff)) &
++                  CALL deallocate_mo_set(ref_mo_reps(ispin, irep))
++            END DO
++         END DO
++         DEALLOCATE (last_mo_reps, ref_mo_reps)
++      END IF
++
++      ! Nullify pointer-remapped working pointers (columns were owned by last_mo_reps/ref_mo_reps)
++      last_mo_state => NULL()
++      ref_mo_state => NULL()
++
++      IF (ASSOCIATED(tddfpt_evects_state)) THEN
++         DO istate = 1, SIZE(tddfpt_evects_state, 2)
++            DO ispin = 1, SIZE(tddfpt_evects_state, 1)
++               CALL cp_fm_release(tddfpt_evects_state(ispin, istate))
++            END DO
++         END DO
++         DEALLOCATE (tddfpt_evects_state)
++      END IF
++
++      IF (ASSOCIATED(tddfpt_evals_state)) DEALLOCATE (tddfpt_evals_state)
++
++      ! Deallocate per-rep storage arrays
++      IF (ALLOCATED(nac_use_bmin_bmax_r)) DEALLOCATE (nac_use_bmin_bmax_r)
++      IF (ALLOCATED(nac_reorder_orbitals_r)) DEALLOCATE (nac_reorder_orbitals_r)
++      IF (ALLOCATED(nac_occ_active_space_r)) DEALLOCATE (nac_occ_active_space_r)
++      IF (ALLOCATED(nac_vir_active_space_r)) DEALLOCATE (nac_vir_active_space_r)
++      IF (ALLOCATED(nac_bmin_r)) DEALLOCATE (nac_bmin_r)
++      IF (ALLOCATED(nac_bmax_r)) DEALLOCATE (nac_bmax_r)
++      IF (ALLOCATED(nac_phase_ref_interval_r)) DEALLOCATE (nac_phase_ref_interval_r)
++      IF (ALLOCATED(nac_filename_r)) DEALLOCATE (nac_filename_r)
++      IF (ALLOCATED(nac_eigtxt_unit_r)) DEALLOCATE (nac_eigtxt_unit_r)
++      IF (ALLOCATED(nac_natxt_unit_r)) DEALLOCATE (nac_natxt_unit_r)
++      IF (ALLOCATED(nac_eigtxt_open_r)) DEALLOCATE (nac_eigtxt_open_r)
++      IF (ALLOCATED(nac_natxt_open_r)) DEALLOCATE (nac_natxt_open_r)
++
++      nac_enabled = .FALSE.
++      nac_do_eigen = .FALSE.
++      nac_with_tddfpt = .FALSE.
++      nac_initialized = .FALSE.
++      nac_parsed = .FALSE.
++      nac_use_bmin_bmax = .FALSE.
++      nac_occ_active_space = 0
++      nac_vir_active_space = 0
++      nac_bmin = 0
++      nac_bmax = 0
++      nac_phase_ref_interval = 10
++      nac_reorder_orbitals = .FALSE.
++      nac_dt = 0.0_dp
++      nac_n_rep = 0
++      nac_irep = 1
++      nac_filename = "NAC"
++
++      CALL timestop(handle)
++   END SUBROUTINE nac_release
++
++! **************************************************************************************************
++!> \brief Private helper: element-wise real power of a full matrix (a_ij -> a_ij**n).
++!        Only used by nac_tddfpt_compute_s. Inlined here to avoid touching cp_fm_basic_linalg.
++! **************************************************************************************************
++   SUBROUTINE cp_fm_pow(matrix, n)
++      TYPE(cp_fm_type), INTENT(IN)                       :: matrix
++      REAL(kind=dp), INTENT(IN)                          :: n
++
++      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_fm_pow'
++
++      INTEGER                                            :: handle, icol_local, irow_local, mypcol, &
++                                                            myprow, ncol_local, nrow_local
++      REAL(kind=dp), DIMENSION(:, :), POINTER            :: a
++      TYPE(cp_blacs_env_type), POINTER                   :: context
++
++      CALL timeset(routineN, handle)
++
++      context => matrix%matrix_struct%context
++      myprow = context%mepos(1)
++      mypcol = context%mepos(2)
++
++      a => matrix%local_data
++
++      nrow_local = matrix%matrix_struct%nrow_locals(myprow)
++      ncol_local = matrix%matrix_struct%ncol_locals(mypcol)
++
++      DO icol_local = 1, ncol_local
++         DO irow_local = 1, nrow_local
++            a(irow_local, icol_local) = a(irow_local, icol_local)**n
++         END DO
++      END DO
++
++      CALL timestop(handle)
++   END SUBROUTINE cp_fm_pow
++
++! **************************************************************************************************
++!> \brief Hungarian / Kuhn-Munkres assignment solver, maximizing total benefit.
++!>        Faithful Fortran port of CA-NAC/mod_hungarian.py (maximize -> minimize of negated+shifted).
++!>        Runs on a small gathered n_active x n_active matrix on every rank (deterministic, no MPI).
++!>        For n <= ~50 the O(n^3) cost is sub-millisecond, so no OpenMP/MPI is applied here on
++!>        purpose (overhead would exceed work). The heavy overlap/eigensolve stays distributed.
++!> \param benefit ... (n,n) benefit matrix, e.g. |overlap|^2
++!> \param perm ...    (n) OUT: perm(i) = column index matched to row i
++! **************************************************************************************************
++   SUBROUTINE nac_kuhn_munkres(benefit, perm)
++      REAL(kind=dp), DIMENSION(:, :), INTENT(IN)  :: benefit
++      INTEGER, DIMENSION(:),          INTENT(OUT) :: perm
++
++      CHARACTER(LEN=*), PARAMETER :: routineN = 'nac_kuhn_munkres'
++
++      INTEGER                                            :: handle, i, j, n, step, &
++                                                            path_row_0, path_col_0, colcount
++      REAL(kind=dp), ALLOCATABLE, DIMENSION(:, :)        :: X
++      INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: M
++      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: Rcov, Ccov
++
++      CALL timeset(routineN, handle)
++
++      n = SIZE(benefit, 1)
++      CPASSERT(SIZE(benefit, 2) == n)
++      CPASSERT(SIZE(perm) == n)
++      ALLOCATE (X(n, n), M(n, n), Rcov(n), Ccov(n))
++
++      ! maximize -> minimize: X = -(benefit) + maxval + eps  (mod_hungarian.maximize, lines 442-445)
++      X = -benefit + MAXVAL(benefit) + 1.0E-5_dp
++      M = 0; Rcov = 0; Ccov = 0
++      perm = 0
++
++      ! driver loop (step1->2->3->4<->5<->6->7). path_row_0/path_col_0 are host-associated
++      ! into km_step5, so they must live in this scope (not a nested BLOCK).
++      step = 1
++      path_row_0 = -1; path_col_0 = -1
++      DO WHILE (step /= 7)
++         SELECT CASE (step)
++         CASE (1); step = km_step1()
++         CASE (2); step = km_step2()
++         CASE (3); CALL km_step3(step, colcount)
++         CASE (4); CALL km_step4(step, path_row_0, path_col_0)
++         CASE (5); CALL km_step5(step)
++         CASE (6); step = km_step6()
++         END SELECT
++      END DO
++
++      ! compute_assignment: perm(i) = j where M(i,j)==1 (exactly one starred zero per row)
++      DO i = 1, n
++         perm(i) = 0
++         DO j = 1, n
++            IF (M(i, j) == 1) THEN
++               perm(i) = j
++               EXIT
++            END IF
++         END DO
++      END DO
++
++      DEALLOCATE (X, M, Rcov, Ccov)
++      CALL timestop(handle)
++
++   CONTAINS
++
++      ! ---- step1: subtract row minima from each row (mod_hungarian.step1) ----
++      INTEGER FUNCTION km_step1()
++         INTEGER :: r
++         DO r = 1, n
++            X(r, :) = X(r, :) - MINVAL(X(r, :))
++         END DO
++         km_step1 = 2
++      END FUNCTION km_step1
++
++      ! ---- step2: star uncovered zeros, then uncover all (mod_hungarian.step2) ----
++      INTEGER FUNCTION km_step2()
++         INTEGER :: i, j
++         DO i = 1, n
++            DO j = 1, n
++               IF (ABS(X(i, j)) < 1.0E-10_dp .AND. Rcov(i) == 0 .AND. Ccov(j) == 0) THEN
++                  M(i, j) = 1
++                  Rcov(i) = 1; Ccov(j) = 1
++               END IF
++            END DO
++         END DO
++         Rcov = 0; Ccov = 0
++         km_step2 = 3
++      END FUNCTION km_step2
++
++      ! ---- step3: cover columns with a star; done if all covered (mod_hungarian.step3) ----
++      SUBROUTINE km_step3(step, colcount)
++         INTEGER, INTENT(OUT) :: step, colcount
++         INTEGER :: i, j
++         Ccov = 0
++         DO i = 1, n
++            DO j = 1, n
++               IF (M(i, j) == 1) Ccov(j) = 1
++            END DO
++         END DO
++         colcount = SUM(Ccov)
++         step = 4
++         IF (colcount >= n) step = 7
++      END SUBROUTINE km_step3
++
++      ! ---- helpers: find_a_zero, find_star_in_row/col, find_prime_in_row ----
++      SUBROUTINE km_find_a_zero(r, c)
++         INTEGER, INTENT(OUT) :: r, c
++         INTEGER :: i, j
++         r = -1; c = -1
++         outer: DO i = 1, n
++            DO j = 1, n
++               IF (ABS(X(i, j)) < 1.0E-20_dp .AND. Rcov(i) == 0 .AND. Ccov(j) == 0) THEN
++                  r = i; c = j; EXIT outer
++               END IF
++            END DO
++         END DO outer
++      END SUBROUTINE km_find_a_zero
++
++      INTEGER FUNCTION km_star_in_row(row)
++         INTEGER, INTENT(IN) :: row
++         INTEGER :: j
++         km_star_in_row = -1
++         DO j = 1, n
++            IF (M(row, j) == 1) km_star_in_row = j
++         END DO
++      END FUNCTION km_star_in_row
++
++      INTEGER FUNCTION km_star_in_col(col)
++         INTEGER, INTENT(IN) :: col
++         INTEGER :: i
++         km_star_in_col = -1
++         DO i = 1, n
++            IF (M(i, col) == 1) km_star_in_col = i
++         END DO
++      END FUNCTION km_star_in_col
++
++      INTEGER FUNCTION km_prime_in_row(row)
++         INTEGER, INTENT(IN) :: row
++         INTEGER :: j
++         km_prime_in_row = -1
++         DO j = 1, n
++            IF (M(row, j) == 2) km_prime_in_row = j
++         END DO
++      END FUNCTION km_prime_in_row
++
++      ! ---- step4: prime uncovered zeros, augment-search (mod_hungarian.step4) ----
++      SUBROUTINE km_step4(step, pr0, pc0)
++         INTEGER, INTENT(OUT) :: step, pr0, pc0
++         INTEGER :: row, col, col_
++         LOGICAL :: done
++         step = 6; pr0 = -1; pc0 = -1
++         done = .FALSE.
++         DO WHILE (.NOT. done)
++            CALL km_find_a_zero(row, col)
++            IF (row == -1) THEN
++               done = .TRUE.; step = 6
++            ELSE
++               M(row, col) = 2
++               col_ = km_star_in_row(row)
++               IF (col_ > -1) THEN
++                  col = col_
++                  Rcov(row) = 1; Ccov(col) = 0
++               ELSE
++                  done = .TRUE.; pr0 = row; pc0 = col; step = 5
++               END IF
++            END IF
++         END DO
++      END SUBROUTINE km_step4
++
++      ! ---- step5: alternating primed/starred path, augment, clear (mod_hungarian.step5) ----
++      SUBROUTINE km_step5(step)
++         INTEGER, INTENT(OUT) :: step
++         INTEGER, ALLOCATABLE, DIMENSION(:, :) :: path
++         INTEGER :: pcnt, r, c
++         LOGICAL :: done
++         ALLOCATE (path(2*n, 2)); path = 0
++         pcnt = 1; path(1, 1) = path_row_0; path(1, 2) = path_col_0
++         done = .FALSE.
++         DO WHILE (.NOT. done)
++            r = km_star_in_col(path(pcnt, 2))
++            IF (r > -1) THEN
++               pcnt = pcnt + 1
++               path(pcnt, 1) = r; path(pcnt, 2) = path(pcnt - 1, 2)
++            ELSE
++               done = .TRUE.
++            END IF
++            IF (.NOT. done) THEN
++               c = km_prime_in_row(path(pcnt, 1))
++               pcnt = pcnt + 1
++               path(pcnt, 1) = path(pcnt - 1, 1); path(pcnt, 2) = c
++            END IF
++         END DO
++         ! augment_path: flip stars along path (1->0, else->1)
++         DO r = 1, pcnt
++            IF (M(path(r, 1), path(r, 2)) == 1) THEN
++               M(path(r, 1), path(r, 2)) = 0
++            ELSE
++               M(path(r, 1), path(r, 2)) = 1
++            END IF
++         END DO
++         Rcov = 0; Ccov = 0          ! clear_covers
++         WHERE (M == 2) M = 0        ! erase_primes
++         step = 3
++         DEALLOCATE (path)
++      END SUBROUTINE km_step5
++
++      ! ---- step6: reduced-cost update (mod_hungarian.step6) ----
++      INTEGER FUNCTION km_step6()
++         INTEGER :: i, j
++         REAL(kind=dp) :: minval
++         minval = HUGE(minval)
++         DO i = 1, n
++            DO j = 1, n
++               IF (Rcov(i) == 0 .AND. Ccov(j) == 0) THEN
++                  IF (minval > X(i, j)) minval = X(i, j)
++               END IF
++            END DO
++         END DO
++         DO i = 1, n
++            DO j = 1, n
++               IF (Rcov(i) == 1) X(i, j) = X(i, j) + minval
++               IF (Ccov(j) == 0) X(i, j) = X(i, j) - minval
++            END DO
++         END DO
++         km_step6 = 4
++      END FUNCTION km_step6
++
++   END SUBROUTINE nac_kuhn_munkres
++
++! **************************************************************************************************
++!> \brief Hungarian orbital matching + step-to-step phase on the active-space overlap.
++!>        Mirrors CA-NAC/CAnac.py:302-309 + phase_from_tdolap. Gathers the small n_active x
++!>        n_active overlap (replicated on all ranks), runs Kuhn-Munkres on |O_ij|^2, reorders
++!>        O_ij columns and O_ji rows by the matched permutation (orbital i keeps identity
++!>        across steps), then flips signs so diag(O_ij) > 0. Writes back in place; the caller's
++!>        overlap_diff and dt-scaled coupling then run on the reordered/phased matrices.
++!>        No MPI comm: every rank gathers the same matrix and computes the same deterministic
++!>        permutation; cp_fm_set_submatrix updates each rank's local block from replicated input.
++! **************************************************************************************************
++   SUBROUTINE nac_hungarian_reorder_phase(oij_fm, oji_fm)
++      TYPE(cp_fm_type), INTENT(INOUT)                      :: oij_fm, oji_fm
++
++      CHARACTER(LEN=*), PARAMETER :: routineN = 'nac_hungarian_reorder_phase'
++
++      INTEGER                                            :: handle, i, j, n
++      INTEGER, ALLOCATABLE, DIMENSION(:)                   :: perm
++      REAL(kind=dp), ALLOCATABLE, DIMENSION(:)             :: fsign
++      REAL(kind=dp), ALLOCATABLE, DIMENSION(:, :)          :: benefit, oij, oij_new, oji, oji_new
++
++      CALL timeset(routineN, handle)
++
++      CALL cp_fm_get_info(oij_fm, nrow_global=n, ncol_global=n)
++      ALLOCATE (oij(n, n), oji(n, n), benefit(n, n), oij_new(n, n), oji_new(n, n), perm(n), fsign(n))
++
++      CALL cp_fm_get_submatrix(oij_fm, oij, 1, 1, n, n)   ! O_ij = <psi_i(t)|psi_j(t+dt)>
++      CALL cp_fm_get_submatrix(oji_fm, oji, 1, 1, n, n)   ! O_ji = <psi_i(t+dt)|psi_j(t)>
++
++      ! Hungarian on |O_ij|^2 -> perm(i) = t+dt column matched to t row i
++      benefit = oij**2
++      CALL nac_kuhn_munkres(benefit, perm)
++
++      ! Reorder so orbital index i tracks identity across steps:
++      !   oij_new(:, j) = oij(:, perm(j))   (align t+dt / column index)
++      !   oji_new(i, :) = oji(perm(i), :)   (align t+dt / row index)
++      DO j = 1, n
++         oij_new(:, j) = oij(:, perm(j))
++      END DO
++      DO i = 1, n
++         oji_new(i, :) = oji(perm(i), :)
++      END DO
++
++      ! Step-to-step phase (phase_from_tdolap): f_i = sign(diag(oij_new)); force diag > 0
++      DO i = 1, n
++         fsign(i) = SIGN(1.0_dp, oij_new(i, i))
++      END DO
++      DO j = 1, n
++         oij_new(:, j) = oij_new(:, j)*fsign(j)   ! t+dt is column index of oij
++      END DO
++      DO i = 1, n
++         oji_new(i, :) = oji_new(i, :)*fsign(i)   ! t+dt is row index of oji
++      END DO
++
++      ! Write back (alpha=1, beta=0 default -> replace the full block)
++      CALL cp_fm_set_submatrix(oij_fm, oij_new, 1, 1, n, n)
++      CALL cp_fm_set_submatrix(oji_fm, oji_new, 1, 1, n, n)
++
++      DEALLOCATE (oij, oji, benefit, oij_new, oji_new, perm, fsign)
++      CALL timestop(handle)
++   END SUBROUTINE nac_hungarian_reorder_phase
++
++END MODULE qs_nac_methods
+diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile' '--exclude=*.log' a/src/qs_tddfpt2_methods.F b/src/qs_tddfpt2_methods.F
+--- a/src/qs_tddfpt2_methods.F	2026-01-03 03:23:03.056966000 +0800
++++ b/src/qs_tddfpt2_methods.F	2026-07-07 18:39:04.009683112 +0800
+@@ -89,7 +89,9 @@
+                                               tddfpt_print_exciton_descriptors,&
+                                               tddfpt_print_nto_analysis,&
+                                               tddfpt_print_summary
++   USE qs_nac_methods,                  ONLY: nac_is_enabled
+    USE qs_tddfpt2_restart,              ONLY: tddfpt_read_restart,&
++                                              tddfpt_save_evects,&
+                                               tddfpt_write_newtonx_output,&
+                                               tddfpt_write_restart
+    USE qs_tddfpt2_smearing_methods,     ONLY: tddfpt_smeared_occupation
+@@ -1220,6 +1222,10 @@
+                                           S_evects, &
+                                           sub_env)
+       END IF
++      ! NAC: stash TDDFPT Ritz vectors + eigenvalues for the on-the-fly coupling
++      ! (module-level SAVE inside qs_nac_methods) if PROPERTIES%NAC is enabled.
++      IF (nac_is_enabled(qs_env)) &
++         CALL tddfpt_save_evects(sub_env, gs_mos, S_evects, evals)
+       ALLOCATE (ostrength(nstates))
+       ostrength = 0.0_dp
+       CALL tddfpt_print_summary(log_unit, &
+diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile' '--exclude=*.log' a/src/qs_tddfpt2_restart.F b/src/qs_tddfpt2_restart.F
+--- a/src/qs_tddfpt2_restart.F	2026-01-03 03:23:03.056966000 +0800
++++ b/src/qs_tddfpt2_restart.F	2026-07-07 18:39:44.489684997 +0800
+@@ -41,6 +41,7 @@
+                                               dp
+    USE message_passing,                 ONLY: mp_para_env_type
+    USE parallel_gemm_api,               ONLY: parallel_gemm
++   USE qs_nac_methods,                  ONLY: nac_set_tddfpt_data
+    USE qs_tddfpt2_subgroups,            ONLY: tddfpt_subgroup_env_type
+    USE qs_tddfpt2_types,                ONLY: tddfpt_ground_state_mos
+    USE string_utilities,                ONLY: integer_to_string
+@@ -57,7 +58,7 @@
+    INTEGER, PARAMETER, PRIVATE          :: nderivs = 3
+    INTEGER, PARAMETER, PRIVATE          :: maxspins = 2
+ 
+-   PUBLIC :: tddfpt_write_restart, tddfpt_read_restart, tddfpt_write_newtonx_output, tddfpt_check_orthonormality
++   PUBLIC :: tddfpt_write_restart, tddfpt_read_restart, tddfpt_write_newtonx_output, tddfpt_check_orthonormality, tddfpt_save_evects
+ 
+ ! **************************************************************************************************
+ 
+@@ -676,4 +677,71 @@
+ 
+    END SUBROUTINE compute_phase_eigenvectors
+ 
++! **************************************************************************************************
++!> \brief Transform TDDFPT Ritz vectors from AO basis to the occ/virt MO basis and stash
++!>        them (with eigenvalues) into the qs_nac_methods module-level SAVE state for the
++!>        on-the-fly TDDFPT-NAC coupling. Ownership of evects/evals_local is transferred
++!>        (stolen) by nac_set_tddfpt_data.
++!> \param sub_env ...
++!> \param gs_mos ...
++!> \param S_evects ...
++!> \param evals ...
++! **************************************************************************************************
++   SUBROUTINE tddfpt_save_evects(sub_env, gs_mos, S_evects, evals)
++
++      TYPE(tddfpt_subgroup_env_type)                     :: sub_env
++      TYPE(tddfpt_ground_state_mos), DIMENSION(:)        :: gs_mos
++      TYPE(cp_fm_type), DIMENSION(:, :)                  :: S_evects
++      REAL(kind=dp), DIMENSION(:)                        :: evals
++
++      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'tddfpt_save_evects'
++
++      INTEGER                                            :: handle, ispin, istate, nao, nspins, &
++                                                            nstates
++      TYPE(cp_fm_struct_type), POINTER                   :: fmstruct
++      TYPE(cp_fm_type), DIMENSION(:, :), POINTER         :: evects
++      REAL(kind=dp), DIMENSION(:), POINTER               :: evals_local
++
++      CALL timeset(routineN, handle)
++
++      nspins = SIZE(S_evects, 1)
++      nstates = SIZE(S_evects, 2)
++      CALL cp_fm_get_info(gs_mos(1)%mos_occ, nrow_global=nao)
++
++      ALLOCATE (evects(nspins, nstates))
++      ALLOCATE (evals_local(nstates))
++
++      DO istate = 1, nstates
++         DO ispin = 1, nspins
++            NULLIFY (fmstruct)
++            CALL cp_fm_struct_create(fmstruct, para_env=sub_env%para_env, &
++                                     context=sub_env%blacs_env, &
++                                     nrow_global=SIZE(gs_mos(ispin)%evals_occ), &
++                                     ncol_global=SIZE(gs_mos(ispin)%evals_virt))
++            CALL cp_fm_create(evects(ispin, istate), fmstruct)
++            CALL cp_fm_struct_release(fmstruct)
++         END DO
++      END DO
++
++      DO istate = 1, nstates
++         DO ispin = 1, nspins
++            CALL parallel_gemm("T", "N", &
++                               SIZE(gs_mos(ispin)%evals_occ), &
++                               SIZE(gs_mos(ispin)%evals_virt), &
++                               nao, &
++                               1.0_dp, &
++                               S_evects(ispin, istate), &
++                               gs_mos(ispin)%mos_virt, &
++                               0.0_dp, &
++                               evects(ispin, istate))
++         END DO
++      END DO
++      evals_local(:) = evals
++
++      ! Hand ownership to qs_nac_methods (caller pointers are NULLIFY'd inside the setter)
++      CALL nac_set_tddfpt_data(evects, evals_local)
++
++      CALL timestop(handle)
++   END SUBROUTINE tddfpt_save_evects
++
+ END MODULE qs_tddfpt2_restart
