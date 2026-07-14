@@ -42,6 +42,8 @@ class Abacus(CMakePackage):
     # which matters for bug tracking. LTS tags carry a "-lts" suffix to
     # distinguish them from any future regular 3.10.x on the develop line.
     # develop line (new build system), newest first
+    version("3.11.0-beta.6", tag="v3.11.0-beta6",
+            commit="31c899d3346a580932794f3cd38518bd630b0840")
     version("3.11.0-beta.4", tag="v3.11.0-beta4",
             commit="7cb8da759b96b6508515515cffd7dcfea9596fb6")
     version("3.9.0.27", tag="v3.9.0.27",
@@ -212,7 +214,7 @@ class Abacus(CMakePackage):
     depends_on("libxc", when="+libxc")
     depends_on("libri", when="+libri")
     depends_on("libcomm", when="+libri")
-    depends_on("pexsi", when="+pexsi")
+    depends_on("pexsi build_system=cmake", when="+pexsi")
     depends_on("rapidjson", when="+rapidjson")
     depends_on("deepmdkit", when="+deepmd")
 
@@ -238,6 +240,9 @@ class Abacus(CMakePackage):
     # dftd4Config.cmake, which ABACUS's find_package(dftd4) requires
     # (see PR #7380).
     depends_on("fortran", type="build", when="+dftd4")
+    # @3.11.0-beta.4: CMakeLists.txt calls enable_language(Fortran) when
+    # ENABLE_DFTD4 OR ENABLE_PEXSI. Also links gfortran runtime directly.
+    depends_on("fortran", type="build", when="@3.11.0-beta.4: +pexsi")
     depends_on("dftd4@4.2.0: build_system=cmake", when="+dftd4")
 
     # OpenMP forward propagation: pick threaded BLAS/FFTW/MKL providers
@@ -301,14 +306,18 @@ class Abacus(CMakePackage):
     # Group A: source_hsolver layout — also needs missing scalapack_connector.h include
     patch("pexsi-tests-copyable-3.9.patch", when="@3.9.0.10:3.9.0.27 +pexsi +tests")
     patch("pexsi-tests-copyable-3.9.patch", when="@3.11.0-beta.4 +pexsi +tests")
+    # Group A (beta6): scalapack_connector.h already included upstream;
+    # only copy ctor needed. Upstream CMake refactored test CMakeLists.txt.
+    patch("pexsi-tests-copyable-3.11.patch", when="@3.11.0-beta.6: +pexsi +tests")
     # Group B: module_hsolver layout — copy ctor only, no extra include needed
     patch("pexsi-tests-copyable-3.10.patch", when="@3.10 +pexsi +tests")
 
     # Skip esolver_dp_test when DeepMDKit is found but not linked to test target.
     # CMake defines __DPMD globally via add_compile_definitions, but only links
     # DeePMD::deepmd_c to the main binary — test targets fail to link.
+    # Fixed upstream in @3.11.0-beta.6 (CMake now guards with if(DEFINED DeePMD_DIR)).
     patch("esolver_dp_test-guard-3.9.patch", when="@3.9.0.10:3.9.0.27 +tests")
-    patch("esolver_dp_test-guard-3.9.patch", when="@3.11.0-beta.4 +tests")
+    patch("esolver_dp_test-guard-3.9.patch", when="@3.11.0-beta.4:3.11.0-beta.5 +tests")
     patch("esolver_dp_test-guard-3.10.patch", when="@3.10 +tests")
 
     # ------------------------------------------------------------------ #
@@ -406,26 +415,33 @@ class Abacus(CMakePackage):
         if "+lcao+elpa" in spec:
             args.append(self.define("ELPA_DIR", spec["elpa"].prefix))
 
-        # LibRI / LibComm: ENABLE_LIBRI auto-enables ENABLE_LIBCOMM in CMake,
-        # but we pass it explicitly and both _DIR prefixes for clarity.
+        # LibRI / LibComm:
+        # - LIBRI_DIR + LIBCOMM_DIR are needed by FindLibRI/FindLibComm in all versions.
+        # - ENABLE_LIBCOMM is deprecated in @3.11.0-beta.6: (CMake unsets it with WARNING).
+        #   LibComm is now auto-found via find_package(LibComm REQUIRED) when ENABLE_LIBRI=ON.
         if "+libri" in spec:
-            args.append(self.define("ENABLE_LIBCOMM", True))
             args.append(self.define("LIBRI_DIR", spec["libri"].prefix))
             args.append(self.define("LIBCOMM_DIR", spec["libcomm"].prefix))
+            if not spec.satisfies("@3.11.0-beta.6:"):
+                args.append(self.define("ENABLE_LIBCOMM", True))
 
         # LibXC: FindLibxc uses Libxc_DIR (prefix) or pkg-config.
         if "+libxc" in spec:
             args.append(self.define("Libxc_DIR", spec["libxc"].prefix))
 
-        # PEXSI: FindPEXSI requires PEXSI_DIR + ParMETIS_DIR + SuperLU_DIST_DIR
-        # (ParMETIS and SuperLU_DIST libraries are REQUIRED). spack's pexsi
-        # package already depends on parmetis + superlu-dist.
+        # PEXSI:
+        # - PEXSI_DIR is needed in all versions.
+        # - @3.11.0-beta.6: uses find_package(PEXSI REQUIRED CONFIG), which reads
+        #   PEXSIConfig.cmake (includes transitive ParMETIS/SuperLU_DIST paths).
+        # - Pre-beta6 uses custom FindPEXSI.cmake, which needs ParMETIS_DIR +
+        #   SuperLU_DIST_DIR explicitly.
         if "+pexsi" in spec:
             args.append(self.define("PEXSI_DIR", spec["pexsi"].prefix))
-            args.append(self.define("ParMETIS_DIR", spec["parmetis"].prefix))
-            args.append(
-                self.define("SuperLU_DIST_DIR", spec["superlu-dist"].prefix)
-            )
+            if not spec.satisfies("@3.11.0-beta.6:"):
+                args.append(self.define("ParMETIS_DIR", spec["parmetis"].prefix))
+                args.append(
+                    self.define("SuperLU_DIST_DIR", spec["superlu-dist"].prefix)
+                )
 
         # DeePMD: variable-driven (DEFINED DeePMD_DIR enables it; no option).
         if "+deepmd" in spec:
