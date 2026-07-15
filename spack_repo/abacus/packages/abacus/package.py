@@ -5,10 +5,11 @@ import glob
 import os
 
 from spack_repo.builtin.build_systems.cmake import CMakePackage
+from spack_repo.builtin.build_systems.cuda import CudaPackage
 from spack.package import *
 
 
-class Abacus(CMakePackage):
+class Abacus(CMakePackage, CudaPackage):
     """ABACUS (Atomic-orbital Based Ab-initial Computation at UStc) is an
     open-source package for first-principles electronic structure calculations.
 
@@ -163,6 +164,34 @@ class Abacus(CMakePackage):
         description="Enable DFT-D4 dispersion correction",
     )
 
+    # GPU acceleration. +cuda and cuda_arch are inherited from CudaPackage.
+    variant(
+        "cuda-mpi",
+        default=False,
+        when="+cuda +mpi",
+        description="Enable CUDA-aware MPI (USE_CUDA_MPI)",
+    )
+    variant(
+        "nccl",
+        default=False,
+        when="+cuda +mpi",
+        description="Enable NCCL-backed multi-GPU collectives "
+        "(ENABLE_NCCL_PARALLEL_DEVICE)",
+    )
+    variant(
+        "cusolvermp",
+        default=False,
+        when="+cuda +mpi",
+        description="Enable cuSOLVERMp distributed GPU solver",
+    )
+    variant(
+        "cublasmp",
+        default=False,
+        when="+cusolvermp",
+        description="Enable cuBLASMp distributed GPU BLAS "
+        "(requires +cusolvermp)",
+    )
+
     # Build unit tests + install test data for container regression testing.
     # Uses a bundled GoogleTest resource (no spack googletest dependency).
     variant(
@@ -208,7 +237,13 @@ class Abacus(CMakePackage):
 
     # LCAO dependencies
     depends_on("cereal", when="+lcao")
-    depends_on("elpa", when="+lcao+elpa")
+    # ELPA: bidirectional cuda constraint (cp2k pattern) so cuda_arch
+    # propagates cleanly via sticky + unify. Without this, the solver
+    # can leave elpa at cuda_arch=none even when abacus has cuda_arch set.
+    depends_on("elpa~cuda", when="+lcao+elpa~cuda")
+    depends_on("elpa+cuda", when="+lcao+elpa+cuda")
+    # beta6 FindELPA.cmake uses pkg-config to locate ELPA
+    depends_on("pkgconfig", type="build", when="+lcao+elpa")
 
     # Optional libraries
     depends_on("libxc", when="+libxc")
@@ -244,6 +279,18 @@ class Abacus(CMakePackage):
     # ENABLE_DFTD4 OR ENABLE_PEXSI. Also links gfortran runtime directly.
     depends_on("fortran", type="build", when="@3.11.0-beta.4: +pexsi")
     depends_on("dftd4@4.2.0: build_system=cmake", when="+dftd4")
+
+    # GPU acceleration
+    # ABACUS uses find_package(CUDAToolkit REQUIRED) + enable_language(CUDA).
+    depends_on("cuda", when="+cuda")
+    # nccl/cusolvermp/cublasmp default ~cuda in spack; force +cuda so
+    # cuda_arch (sticky) propagates from the root spec via unify.
+    depends_on("nccl+cuda", when="+nccl")
+    depends_on("cusolvermp+cuda", when="+cusolvermp")
+    depends_on("cublasmp+cuda", when="+cublasmp")
+    # CUDA-aware MPI: MPI implementation must be built with CUDA support.
+    depends_on("mpi+cuda", when="+cuda-mpi")
+    # ELPA GPU diagonalization: see bidirectional constraint above.
 
     # OpenMP forward propagation: pick threaded BLAS/FFTW/MKL providers
     with when("+openmp"):
@@ -288,6 +335,10 @@ class Abacus(CMakePackage):
         when="@:3.9.0.24",
         msg="develop <3.9.0.25: GNU+MKL not supported (same as LTS).",
     )
+
+    # cuBLASMp requires cuSOLVERMp (enforced by CMake, conflict for clarity)
+    conflicts("+cublasmp", when="~cusolvermp",
+              msg="cuBLASMp requires +cusolvermp")
 
     # LTS PEXSI compile fix: upstream bug (missing #include + Gint_inout
     # signature mismatch) fixed in PR #6689 on develop, but not cherry-picked
@@ -371,12 +422,16 @@ class Abacus(CMakePackage):
             ),
             self.define_from_variant("DEBUG_INFO", "debug"),
             self.define_from_variant("USE_ABACUS_LIBM", "mathlib"),
-            # --- shared force-disabled (CPU-only x86_64) ---
-            self.define("USE_CUDA", False),
+            # --- GPU acceleration (variant-driven) ---
+            self.define_from_variant("USE_CUDA", "cuda"),
+            self.define_from_variant("USE_CUDA_MPI", "cuda-mpi"),
+            self.define_from_variant("ENABLE_NCCL_PARALLEL_DEVICE", "nccl"),
+            self.define("ENABLE_CUSOLVERMP", "+cusolvermp" in spec),
+            self.define("ENABLE_CUBLASMP", "+cublasmp" in spec),
+            # --- shared force-disabled (not supported) ---
             self.define("USE_ROCM", False),
             self.define("USE_DSP", False),
             self.define("USE_CUDA_ON_DCU", False),
-            self.define("ENABLE_CUSOLVERMP", False),
             self.define("GIT_SUBMODULE", False),
             # COMMIT_INFO=ON: git versions keep .git in the stage, so
             # `git describe` works and `abacus --version` shows the commit.
@@ -496,6 +551,16 @@ class Abacus(CMakePackage):
                     join_path(self.stage.source_path, "third_party", "googletest"),
                 )
             )
+
+        # CUDA architecture forwarding. ABACUS uses CMAKE_CUDA_ARCHITECTURES
+        # (CMake 3.18+ native). CudaPackage provides the multi-valued variant.
+        if "+cuda" in spec:
+            if spec.satisfies("^cuda@12.8:"):
+                args.append("-DCMAKE_CUDA_FLAGS=-static-global-template-stub=false")
+                
+            cuda_arch = spec.variants["cuda_arch"].value
+            if cuda_arch[0] != "none":
+                args.append(self.define("CMAKE_CUDA_ARCHITECTURES", ";".join(cuda_arch)))
 
         return args
 
