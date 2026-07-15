@@ -103,33 +103,41 @@ class Elpa(AutotoolsPackage, CudaPackage, ROCmPackage):
     # Suppress debug output to stderr for non-debug builds
     patch("elpa-2026.02.001-wantDebug.patch", when="@2026.02.001:")
 
-    # Force AVX512 kernels on non-AVX512 hosts for mixed-ISA cluster deployment
+    # Force AVX512 kernels on non-AVX512 hosts for mixed-ISA cluster deployment.
+    # Supported only on elpa@2025: (verified dry-run matrix: 2025.01.001/002,
+    # 2025.06.001, 2026.02.001/002). Older releases are refused via conflicts().
+    conflicts(
+        "+force_all_x86_kernel",
+        when="@:2024.05.001",
+        msg="+force_all_x86_kernel requires elpa@2025: "
+        "(force AVX512 patches are not maintained for older releases)",
+    )
     patch(
         "force_all_x86_kernel.patch",
         sha256="380717a6f133a2f6ad6b3c537cdd6f77d01338fb30ba39c072144f877e812b86",
-        when="+force_all_x86_kernel",
+        when="+force_all_x86_kernel @2025:",
     )
     # configure: printf "%s\n" style through 2026.02.001; single-quote style from 2026.02.002
     patch(
         "force_avx512_configure.patch",
         sha256="6b33df43a1a274636436cc413be255da7c07d62479179539f201586aaaaac1ca",
-        when="+force_all_x86_kernel @:2026.02.001",
+        when="+force_all_x86_kernel @2025:2026.02.001",
     )
     patch(
         "force_avx512_configure-2026.02.002.patch",
         sha256="e6cb6d39052f6b78aa038f6d1abda4a090c2a2cfe2ba170307f293f59331ced4",
         when="+force_all_x86_kernel @2026.02.002:",
     )
-    # Makefile.in: am__objects_N indices changed between 2025.x and 2026.02+
+    # Makefile.in: am__objects_N indices change at 2025.06 (not at 2026.02)
     patch(
         "force_avx512_makefile_in.patch",
         sha256="b60b2f22767aa1c57c8cfa44f2544b5b26696d46ee05f51a777654a5071a7437",
-        when="+force_all_x86_kernel @:2025.01.001",
+        when="+force_all_x86_kernel @2025.01.001:2025.01.002",
     )
     patch(
         "force_avx512_makefile_in-2026.patch",
         sha256="8c054c705450838e8dd189a9a96125cc17a37f5950a8b61d7d7b51a629e5f3ab",
-        when="+force_all_x86_kernel @2026.02.001:",
+        when="+force_all_x86_kernel @2025.06.001:",
     )
 
     depends_on("c", type="build")  # generated

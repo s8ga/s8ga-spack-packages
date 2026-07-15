@@ -93,13 +93,13 @@ runtime dispatch, so the same binary runs on any x86_64 node.
 | FFTW     | `+force_avx512`         | Force `--enable-avx512` regardless of target |
 | ELPA     | `+force_all_x86_kernel` | Version-gated patches: relax configure AVX512 probes + per-object CFLAGS |
 
-Verified override source versions (see `scripts/verify_overrides.sh` defaults):
+Supported / verified force windows (see `scripts/verify_overrides.sh`):
 
-| Package  | Versions |
-|----------|----------|
-| OpenBLAS | `0.3.30`, `0.3.33` |
-| ELPA     | `2025.01.001`, `2026.02.001`, `2026.02.002` |
-| FFTW     | `3.3.10`, `3.3.11` |
+| Package  | Supported | Verified versions |
+|----------|-----------|-------------------|
+| OpenBLAS | `@0.3.30:` (`@:0.3.29` conflicts) | `0.3.30`, `0.3.32`, `0.3.33` |
+| ELPA     | `@2025:` (`@:2024.05.001` conflicts) | `2025.01.001/002`, `2025.06.001`, `2026.02.001/002` |
+| FFTW     | `@3.3.10:` (`@:3.3.9` conflicts) | `3.3.10`, `3.3.11` |
 
 ### Check AVX512 kernels are present
 

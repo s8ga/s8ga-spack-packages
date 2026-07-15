@@ -31,6 +31,13 @@ class FftwBase(AutotoolsPackage):
         "the build host. AVX512 codelets are compiled and dispatch is via "
         "runtime CPUID detection.",
     )
+    # FFTW releases rarely; verified --enable-avx512 on 3.3.10/3.3.11 only.
+    conflicts(
+        "+force_avx512",
+        when="@:3.3.9",
+        msg="+force_avx512 requires fftw@3.3.10: "
+        "(only recent releases are verified for mixed-ISA deployment)",
+    )
 
     depends_on("mpi", when="+mpi")
     depends_on("llvm-openmp", when="+openmp %apple-clang")

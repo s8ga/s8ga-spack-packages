@@ -56,22 +56,25 @@ with runtime CPUID dispatch for portability. Used in HPC mixed-ISA clusters.
 
 ### Per-package changes vs builtin
 
-| Package | Changes | Upstream / custom patches |
-|---------|---------|---------------------------|
-| openblas | 1 variant + 1 condition (`NO_AVX512`) | None |
-| fftw | 1 variant + 1 SIMD loop condition | None (also carries builtin `%gcc@14:` warning fix) |
-| elpa | 1 variant + version-gated `patch()` + simd_features restructure | Custom force_* patches + builtin wantDebug |
+| Package | Changes | Upstream / custom patches | Supported window |
+|---------|---------|---------------------------|------------------|
+| openblas | 1 variant + 1 condition (`NO_AVX512`) | None | `@0.3.30:` (`conflicts` `@:0.3.29`) |
+| fftw | 1 variant + 1 SIMD loop condition | None (also carries builtin `%gcc@14:` warning fix) | `@3.3.10:` (`conflicts` `@:3.3.9`) |
+| elpa | 1 variant + version-gated `patch()` + simd_features restructure | Custom force_* patches + builtin wantDebug | `@2025:` (`conflicts` `@:2024.05.001`) |
 
-### ELPA force patches (version-gated)
+### ELPA force patches (version-gated, `@2025:` only)
+
+`conflicts("+force_all_x86_kernel", when="@:2024.05.001")` — older releases are unsupported.
 
 | Patch | `when=` |
 |-------|---------|
-| `force_all_x86_kernel.patch` | `+force_all_x86_kernel` (all) |
-| `force_avx512_configure.patch` | `+force_all_x86_kernel @:2026.02.001` |
+| `force_all_x86_kernel.patch` | `+force_all_x86_kernel @2025:` |
+| `force_avx512_configure.patch` | `+force_all_x86_kernel @2025:2026.02.001` |
 | `force_avx512_configure-2026.02.002.patch` | `+force_all_x86_kernel @2026.02.002:` |
-| `force_avx512_makefile_in.patch` | `+force_all_x86_kernel @:2025.01.001` |
-| `force_avx512_makefile_in-2026.patch` | `+force_all_x86_kernel @2026.02.001:` |
+| `force_avx512_makefile_in.patch` | `+force_all_x86_kernel @2025.01.001:2025.01.002` |
+| `force_avx512_makefile_in-2026.patch` | `+force_all_x86_kernel @2025.06.001:` |
 
+Verified dry-run matrix: `2025.01.001`, `2025.01.002`, `2025.06.001`, `2026.02.001`, `2026.02.002`.
 Also synced from builtin: `elpa-2026.02.001-wantDebug.patch` (`@2026.02.001:`).
 
 ### Future Rebase Workflow
@@ -120,14 +123,20 @@ cp $BUILTIN/*.patch spack_repo/s8_overrides/packages/openblas/  # data files
 
 ### Verification script
 
-`scripts/verify_overrides.sh` uses `spack stage` (downloads source tarballs,
-NOT git clones). Checks:
-- OpenBLAS: `NO_AVX512` variable in `Makefile.system`
-- FFTW: `avx512` in `configure` script
+`scripts/verify_overrides.sh` uses `spack stage` (downloads **official upstream
+tarballs** via recipe URL+sha256, NOT git clones, NOT handmade fixtures).
+
+Checks:
+- OpenBLAS: `NO_AVX512` variable still exists in `Makefile.system`
+- FFTW: `avx512` / `--enable-avx512` still in `configure`
 - ELPA: `patch --dry-run` for version-selected force patches
 
-Default versions: OpenBLAS `0.3.30`/`0.3.33`, ELPA
-`2025.01.001`/`2026.02.001`/`2026.02.002`, FFTW `3.3.10`/`3.3.11`.
+This is a **compatibility / applyability** gate, not a full build or SIMD
+content proof. After install, still use `objdump … | grep -c zmm`.
+
+Default versions: OpenBLAS `0.3.30`/`0.3.32`/`0.3.33`, ELPA
+`2025.01.001`/`2025.01.002`/`2025.06.001`/`2026.02.001`/`2026.02.002`,
+FFTW `3.3.10`/`3.3.11`.
 
 ## ABACUS package patches
 

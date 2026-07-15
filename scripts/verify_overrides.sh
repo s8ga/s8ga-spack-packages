@@ -2,9 +2,16 @@
 #
 # verify_overrides.sh — Verify force_avx512 compatibility with upstream sources
 #
-# Uses `spack stage` (downloads source tarballs, NOT git clones) to verify that
-# our force_avx512 / force_all_x86_kernel modifications are compatible with the
-# actual upstream build files (Makefile, configure, configure.ac, Makefile.am).
+# How this works (trust model):
+#   1. `spack stage <pkg>@<ver>` downloads the *official upstream tarball*
+#      (URL + sha256 from the package recipe) into a local stage dir.
+#      This is NOT a hand-rolled test fixture and NOT a git checkout.
+#   2. OpenBLAS/FFTW: we do NOT ship source patches — only package.py deltas.
+#      Checks confirm upstream still exposes the hooks we rely on
+#      (NO_AVX512 in Makefile.system, --enable-avx512 in configure).
+#   3. ELPA: dry-runs our local force_*.patch files against that staged source.
+#   4. This proves "patch applies / symbol exists". It does NOT prove a full
+#      build, nor that the installed .so contains zmm opcodes (use objdump).
 #
 # Usage:
 #   ./scripts/verify_overrides.sh                              # default versions
@@ -23,9 +30,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 OVERRIDE_DIR="$REPO_ROOT/spack_repo/s8_overrides/packages"
 
-# Default versions (matching current ABACUS env pins + latest builtin)
-OPENBLAS_VERSIONS=("0.3.30" "0.3.33")
-ELPA_VERSIONS=("2025.01.001" "2026.02.001" "2026.02.002")
+# Default versions — supported force_avx512 windows only (~1 year / verified).
+# OpenBLAS: @0.3.30:  |  ELPA: @2025:  |  FFTW: @3.3.10:
+OPENBLAS_VERSIONS=("0.3.30" "0.3.32" "0.3.33")
+ELPA_VERSIONS=("2025.01.001" "2025.01.002" "2025.06.001" "2026.02.001" "2026.02.002")
 FFTW_VERSIONS=("3.3.10" "3.3.11")
 
 # Parse arguments
@@ -146,7 +154,16 @@ verify_elpa() {
 
     # Select version-gated patches matching package.py when= conditions.
     # sort -V: true when first arg <= second (input already sorted ascending).
+    # Supported matrix (@2025: only):
+    #   configure:         @:2026.02.001 vs @2026.02.002:
+    #   makefile_in:       @2025.01.001:2025.01.002 vs @2025.06.001:
     version_ge() { printf '%s\n%s\n' "$1" "$2" | sort -C -V; }
+
+    if ! version_ge "2025" "$version"; then
+        fail "elpa@$version is unsupported for +force_all_x86_kernel (need @2025:)"
+        echo ""
+        return
+    fi
 
     local patches=("force_all_x86_kernel.patch")
     if version_ge "2026.02.002" "$version"; then
@@ -154,7 +171,7 @@ verify_elpa() {
     else
         patches+=("force_avx512_configure.patch")
     fi
-    if version_ge "2026.02.001" "$version"; then
+    if version_ge "2025.06.001" "$version"; then
         patches+=("force_avx512_makefile_in-2026.patch")
     else
         patches+=("force_avx512_makefile_in.patch")

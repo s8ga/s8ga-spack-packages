@@ -157,6 +157,14 @@ class Openblas(CMakePackage, MakefilePackage):
         default=False,
         description="Compile all CPU kernels including AVX512 for mixed-ISA cluster deployment",
     )
+    # Supported window ~1 year (verified NO_AVX512 in Makefile.system on
+    # 0.3.30/0.3.32/0.3.33; 0.3.31 not in recipe). Older releases refused.
+    conflicts(
+        "+force_avx512",
+        when="@:0.3.29",
+        msg="+force_avx512 requires openblas@0.3.30: "
+        "(only recent releases are verified for mixed-ISA deployment)",
+    )
 
     # virtual dependency
     provides("blas", "lapack")
