@@ -345,6 +345,12 @@ class Abacus(CMakePackage, CudaPackage):
     # to the LTS branch. See issue #6684.
     patch("lts-pexsi-compile.patch", when="@3.10 +pexsi")
 
+    # LTS CUDA 13 compatibility: cherry-pick of PR #6772 + #6813 from LTS HEAD.
+    # v3.10.1 tag predates these fixes: CMakeLists.txt needs find_package(CUDAToolkit)
+    # before version check + C++17 for CUDA 13 (CCCL/Thrust requires it).
+    # Source files (device.cpp, global.h, helper_cuda.h) have CUDA 13 API fixes.
+    patch("lts-cuda13-fix.patch", when="@3.10 +cuda")
+
     # v3.9.0.10 compile fix: uint64_t used without #include <cstdint>
     # (fixed in later develop versions)
     patch("v3.9.0.10-cstdint.patch", when="@3.9.0.10")
