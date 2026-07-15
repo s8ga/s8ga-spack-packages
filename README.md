@@ -1,112 +1,163 @@
 # s8ga-spack-packages
 
-Custom [Spack](https://spack.io) package repository for **ABACUS** (Atomic-orbital Based Ab-initio Computation at UStc) and **force_avx512** math library overrides for HPC mixed-ISA cluster deployment.
+Custom [Spack](https://spack.io) package repositories for:
+
+1. **ABACUS** (Atomic-orbital Based Ab-initio Computation at UStc) and related
+   header/libs packages
+2. **`force_avx512` math-library overrides** for HPC mixed-ISA cluster deployment
+
+Repos use the spack **v2.5** layout (`spack_repo/<namespace>/`).
 
 ## Repository Structure
 
 ```
 spack_repo/
-  s8_custom_repo/          # Original packages (not in spack builtin)
+  abacus/                  # namespace: abacus (api: v2.5)
     packages/
-      abacus/              # 9 versions, 36 variants, 4-layer test infrastructure
+      abacus/              # Main package: 9 versions, CUDA, multi-variant
       libri/               # Header-only
       libcomm/             # Header-only
       libnpy/              # Header-only
-      nep_cpu/             # NEP v1.4
-  s8_overrides/            # Builtin package overrides (+force_avx512)
+      nep_cpu/             # NEP v1.4 (dir=underscore → package name nep-cpu)
+  s8_overrides/            # namespace: s8_overrides (api: v2.5)
     packages/
-      openblas/            # +force_avx512 variant
-      elpa/                # +force_all_x86_kernel variant + 3 patches
-      fftw/                # +force_avx512 variant
+      openblas/            # +force_avx512
+      elpa/                # +force_all_x86_kernel + version-gated patches
+      fftw/                # +force_avx512
+  s8_custom_repo/          # Legacy empty placeholder (no packages)
 scripts/
-  verify_overrides.sh      # Verify upstream build file compatibility
+  verify_overrides.sh              # Upstream source/patch compatibility checks
+  abacus_run_module_tests.sh       # Container helper: MODULE_* unit tests
+  abacus_run_integration_tests.sh  # Container helper: Autotest.sh groups
 ```
+
+Current `s8_overrides` recipes are rebased on
+[spack/spack-packages](https://github.com/spack/spack-packages)
+**`develop@18aeef72`** (builtin api v2.2).
 
 ## Quick Start
 
 ### Register in a Spack environment
 
+Use **env-scoped** repos (never global `spack repo add`):
+
 ```bash
-# Clone this repo
 git clone https://github.com/s8ga/s8ga-spack-packages.git
 
-# Register repos in your spack env (order matters: first = highest priority)
+# Priority: first added = highest
 spack -e <env> repo add /path/to/s8ga-spack-packages/spack_repo/s8_overrides
-spack -e <env> repo add /path/to/s8ga-spack-packages/spack_repo/s8_custom_repo
+spack -e <env> repo add /path/to/s8ga-spack-packages/spack_repo/abacus
 
-# Verify
 spack -e <env> repo list
-# Should show: s8_custom_repo > s8_overrides > builtin
+# Expected: abacus > s8_overrides > builtin
 ```
+
+Do **not** register the empty `s8_custom_repo` unless you intentionally add
+packages there again.
 
 ### Install ABACUS
 
 ```bash
-# LTS with force_avx512
+# LTS + force_avx512 math libs
 spack install abacus@3.10.1-lts +deepks+pexsi+lcao+elpa+libri+libxc \
-  +force_avx512 ^openblas+force_avx512 ^elpa+force_all_x86_kernel ^fftw+force_avx512
+  ^openblas+force_avx512 ^elpa+force_all_x86_kernel ^fftw+force_avx512
 
-# Develop with force_avx512
-spack install abacus@3.9.0.27 +mlalgo+nep+deepmd+pexsi+lcao+elpa+libri+libxc \
-  +force_avx512 ^openblas+force_avx512 ^elpa+force_all_x86_kernel ^fftw+force_avx512
+# Develop (beta) + force_avx512 math libs
+spack install abacus@3.11.0-beta.6 +mlalgo+nep+deepmd+pexsi+lcao+elpa+libri+libxc \
+  ^openblas+force_avx512 ^elpa+force_all_x86_kernel ^fftw+force_avx512
+
+# CUDA example (set a real SM arch for your GPUs)
+spack install abacus@3.11.0-beta.6 +cuda+lcao+elpa cuda_arch=80 \
+  ^openblas+force_avx512 ^elpa+force_all_x86_kernel+cuda ^fftw+force_avx512
 ```
+
+`+deepks` (LTS / `ENABLE_DEEPKS`) and `+mlalgo` (develop / `ENABLE_MLALGO`) are
+version-disjoint — never enable both.
 
 ## force_avx512: What and Why
 
 In HPC mixed-ISA clusters (some nodes AVX2, some AVX512), you need:
-- Binaries compiled on AVX2 build nodes that **contain** AVX512 kernels
-- Runtime CPUID dispatch to select the optimal kernel per node
 
-Spack's `target=x86_64_v4` hardcodes AVX512 instructions (SIGILL on non-AVX512 nodes).
-The `+force_avx512` variant compiles all SIMD kernels **including** AVX512, with
-runtime CPUID dispatch for portability — the binary runs on any x86_64 node.
+- Binaries built on AVX2 hosts that **still contain** AVX512 kernels
+- Runtime CPUID dispatch to pick the right kernel per node
 
-### Supported packages
+Spack `target=x86_64_v4` hardcodes AVX512 (SIGILL on non-AVX512 nodes).
+`+force_avx512` / `+force_all_x86_kernel` compile the AVX512 kernels **and** keep
+runtime dispatch, so the same binary runs on any x86_64 node.
 
-| Package | Variant | How it works |
-|---------|---------|-------------|
-| OpenBLAS | `+force_avx512` | Suppresses `NO_AVX512=1`, builds all kernels via dynamic dispatch |
-| FFTW | `+force_avx512` | Forces `--enable-avx512` configure flag regardless of target |
-| ELPA | `+force_all_x86_kernel` | 3 source patches: relax configure AVX512 test + per-object CFLAGS |
+### Supported overrides
 
-### Verify AVX512 kernels are present
+| Package  | Variant                 | Mechanism |
+|----------|-------------------------|-----------|
+| OpenBLAS | `+force_avx512`         | Suppress `NO_AVX512=1`; build all kernels with dynamic dispatch |
+| FFTW     | `+force_avx512`         | Force `--enable-avx512` regardless of target |
+| ELPA     | `+force_all_x86_kernel` | Version-gated patches: relax configure AVX512 probes + per-object CFLAGS |
+
+Verified override source versions (see `scripts/verify_overrides.sh` defaults):
+
+| Package  | Versions |
+|----------|----------|
+| OpenBLAS | `0.3.30`, `0.3.33` |
+| ELPA     | `2025.01.001`, `2026.02.001`, `2026.02.002` |
+| FFTW     | `3.3.10`, `3.3.11` |
+
+### Check AVX512 kernels are present
 
 ```bash
-# Should show non-zero zmm (AVX512) instruction count
-objdump -d $(spack location -i openblas)/lib/libopenblas.so | grep -c zmm
+objdump -d "$(spack location -i openblas)/lib/libopenblas.so" | grep -c zmm
+# non-zero → AVX512 kernels are in the binary
 ```
 
-### Verify upstream compatibility before rebase
+### Rebase / compatibility check
 
 ```bash
 ./scripts/verify_overrides.sh
-# Uses spack stage (downloads ~11MB of source tarballs, NOT git clones)
-# Checks: OpenBLAS NO_AVX512 variable, FFTW avx512 configure, ELPA patch --dry-run
+# Downloads ~11MB of upstream tarballs via `spack stage` (not git clones)
+# Checks OpenBLAS NO_AVX512, FFTW avx512 configure, ELPA patch --dry-run
 ```
 
 ## ABACUS Versions
 
-| Version | Branch | Key variant |
-|---------|--------|------------|
-| `3.10.0-lts` | LTS | `+deepks` (ENABLE_DEEPKS) |
-| `3.10.1-lts` | LTS | `+deepks` |
-| `3.9.0.10` – `3.9.0.27` | Develop | `+mlalgo` (ENABLE_MLALGO) |
-| `3.11.0-beta.4` | Develop | `+mlalgo` |
+| Version          | Line    | Key ML variant |
+|------------------|---------|----------------|
+| `3.10.0-lts`     | LTS     | `+deepks` |
+| `3.10.1-lts`     | LTS     | `+deepks` |
+| `3.9.0.10`–`3.9.0.27` | Develop | `+mlalgo` |
+| `3.11.0-beta.4`  | Develop | `+mlalgo` |
+| `3.11.0-beta.6`  | Develop | `+mlalgo` |
 
-`+deepks` and `+mlalgo` are version-disjoint (upstream renamed the CMake option).
+GPU: `CudaPackage` mixin (`+cuda`, `cuda_arch=...`), plus optional
+`+cuda-mpi` / `+nccl` / `+cusolvermp` / `+cublasmp`. LTS CUDA 13 needs
+`lts-cuda13-fix.patch` (applied automatically for `@3.10 +cuda`).
+
+Related packages in the same `abacus` namespace: `libri`, `libcomm`, `libnpy`,
+`nep-cpu`.
+
+## Container test helpers
+
+Inside HPC container images that install under `/opt/spack/linux-x86_64_v3/`:
+
+```bash
+# Module GoogleTest binaries (needs abacus+tests)
+bash scripts/abacus_run_module_tests.sh
+
+# Integration Autotest.sh groups 01–10
+bash scripts/abacus_run_integration_tests.sh
+```
 
 ## Documentation
 
-See [AGENTS.md](AGENTS.md) for:
-- Detailed rebase workflow (when spack-packages updates)
-- force_avx512 delta (exact code changes to re-apply)
-- ABACUS dependency quirks and design decisions
-- Testing infrastructure (4 layers)
-- HPC Container Factory integration
+See [AGENTS.md](AGENTS.md) for agent/maintainer details:
+
+- Rebase workflow when `spack-packages` advances
+- Exact `force_avx512` deltas to re-apply after copying builtin recipes
+- ABACUS dependency quirks, patches, and 4-layer test stack
+- HPC Container Factory integration notes
 
 ## License
 
 MIT. See [LICENSE](LICENSE).
 
-The `s8_overrides` packages are derived from [spack-packages](https://github.com/spack/spack-packages)
-(MIT OR Apache-2.0). Builtin copyright headers are preserved in those files.
+The `s8_overrides` packages are derived from
+[spack-packages](https://github.com/spack/spack-packages) (MIT OR Apache-2.0).
+Builtin copyright headers are preserved in those files.
