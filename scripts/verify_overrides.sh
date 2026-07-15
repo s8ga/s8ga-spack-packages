@@ -9,7 +9,7 @@
 # Usage:
 #   ./scripts/verify_overrides.sh                              # default versions
 #   ./scripts/verify_overrides.sh --openblas 0.3.33            # specific version
-#   ./scripts/verify_overrides.sh --elpa 2026.02.001           # specific version
+#   ./scripts/verify_overrides.sh --elpa 2026.02.002           # specific version
 #   ./scripts/verify_overrides.sh --fftw 3.3.11                # specific version
 #   ./scripts/verify_overrides.sh --openblas 0.3.33 --fftw 3.3.11  # multiple
 #
@@ -23,9 +23,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 OVERRIDE_DIR="$REPO_ROOT/spack_repo/s8_overrides/packages"
 
-# Default versions (matching current ABACUS env pins)
+# Default versions (matching current ABACUS env pins + latest builtin)
 OPENBLAS_VERSIONS=("0.3.30" "0.3.33")
-ELPA_VERSIONS=("2025.01.001")
+ELPA_VERSIONS=("2025.01.001" "2026.02.001" "2026.02.002")
 FFTW_VERSIONS=("3.3.10" "3.3.11")
 
 # Parse arguments
@@ -144,17 +144,33 @@ verify_elpa() {
     local src
     src="$(stage_src_dir "$stage")"
 
-    # Check each patch with --dry-run
-    for patch_name in force_all_x86_kernel force_avx512_configure force_avx512_makefile_in; do
-        local patch_file="$OVERRIDE_DIR/elpa/${patch_name}.patch"
+    # Select version-gated patches matching package.py when= conditions.
+    # sort -V: true when first arg <= second (input already sorted ascending).
+    version_ge() { printf '%s\n%s\n' "$1" "$2" | sort -C -V; }
+
+    local patches=("force_all_x86_kernel.patch")
+    if version_ge "2026.02.002" "$version"; then
+        patches+=("force_avx512_configure-2026.02.002.patch")
+    else
+        patches+=("force_avx512_configure.patch")
+    fi
+    if version_ge "2026.02.001" "$version"; then
+        patches+=("force_avx512_makefile_in-2026.patch")
+    else
+        patches+=("force_avx512_makefile_in.patch")
+    fi
+
+    # Check each selected patch with --dry-run
+    for patch_name in "${patches[@]}"; do
+        local patch_file="$OVERRIDE_DIR/elpa/${patch_name}"
         if [[ ! -f "$patch_file" ]]; then
-            fail "$patch_name.patch file not found"
+            fail "$patch_name file not found"
             continue
         fi
         if (cd "$src" && patch --dry-run -p1 < "$patch_file" >/dev/null 2>&1); then
-            ok "$patch_name.patch applies cleanly"
+            ok "$patch_name applies cleanly"
         else
-            fail "$patch_name.patch FAILED — needs regeneration for this version!"
+            fail "$patch_name FAILED — needs regeneration for this version!"
         fi
     done
     echo ""

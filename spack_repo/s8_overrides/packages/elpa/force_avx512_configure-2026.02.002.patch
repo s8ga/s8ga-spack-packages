@@ -1,0 +1,42 @@
+From: ELPA force_all_x86_kernel configure script patch (2026.02.002+)
+Subject: [PATCH] Force build AVX512 kernels in pre-generated configure (printf single-quote style)
+
+ELPA 2026.02.002 regenerates configure with printf '%s\n' instead of
+printf "%s\n". Keep the older force_avx512_configure.patch for @:2026.02.001.
+
+--- a/configure
++++ b/configure
+@@ -21057,12 +21057,23 @@
+   { printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: ${can_compile_avx512}" >&5
+ printf '%s\n' "${can_compile_avx512}" >&6; }
+   if test x"$can_compile_avx512" != x"yes"; then
+-    as_fn_error $? "Could not compile a test program with AVX512, adjust the C compiler or CFLAGS. Possibly (some of) the flags \" $SIMD_FLAGS \" solve this issue" "$LINENO" 5
++    { printf '%s\n' "$as_me:${as_lineno-$LINENO}: WARNING: Could not compile a test program with AVX512, but forcing AVX512 support enabled as requested" >&2; }; can_compile_avx512=yes
+   fi
+ 
+ printf '%s\n' "#define HAVE_AVX512 1" >>confdefs.h
+ 
+ 
++  # Per-object CFLAGS for AVX512 kernel files (force_all_x86_kernel patch)
++  if test x"$GCC" = x"yes"; then
++    AVX512_CFLAGS="-mavx512f -mavx512cd -mavx512vl -mavx512bw -mavx512dq"
++  else
++    case "$CC" in
++      *icc*|*icx*|*ifort*|*ifx*) AVX512_CFLAGS="-xCORE-AVX512" ;;
++      *) AVX512_CFLAGS="-mavx512f -mavx512cd -mavx512vl -mavx512bw -mavx512dq" ;;
++    esac
++  fi
++  export AVX512_CFLAGS
++
+   if test x"$can_compile_avx512" = x"yes"; then
+     { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking whether we compile for Xeon" >&5
+ printf %s "checking whether we compile for Xeon... " >&6; }
+@@ -21141,7 +21152,7 @@
+ printf '%s\n' "#define HAVE_AVX512_XEON_PHI 1" >>confdefs.h
+ 
+       else
+-        as_fn_error $? "Oho! We can neither compile AVX512 intrinsics for Xeon nor Xeon Phi. This should not happen!" "$LINENO" 5
++        { printf '%s\n' "$as_me:${as_lineno-$LINENO}: WARNING: Cannot compile AVX512 intrinsics for Xeon nor Xeon Phi. Defaulting to Xeon." >&2; }; can_compile_avx512_xeon=yes
+       fi
+     fi
+   fi
