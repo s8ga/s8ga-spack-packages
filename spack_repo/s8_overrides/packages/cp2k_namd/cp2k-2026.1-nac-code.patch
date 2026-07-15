@@ -11,7 +11,7 @@ diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile'
    qs_nl_hash_table_types.F
 diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile' '--exclude=*.log' a/src/input_cp2k_properties_dft.F b/src/input_cp2k_properties_dft.F
 --- a/src/input_cp2k_properties_dft.F	2026-01-03 03:23:02.931959200 +0800
-+++ b/src/input_cp2k_properties_dft.F	2026-07-14 21:57:40.697775691 +0800
++++ b/src/input_cp2k_properties_dft.F	2026-07-15 18:52:11.731448924 +0800
 @@ -144,6 +144,10 @@
        CALL section_add_subsection(section, subsection)
        CALL section_release(subsection)
@@ -58,7 +58,7 @@ diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile'
 +                          description="Number of occupied orbitals in the active space (mode A). "// &
 +                          "Mutually exclusive with ACTIVE_SPACE_BMIN/BMAX.", &
 +                          usage="ACTIVE_SPACE_OCC 10", &
-+                          n_var=1, type_of_var=integer_t, default_i_val=0)
++                          n_var=1, type_of_var=integer_t, default_i_val=-1)
 +      CALL section_add_keyword(section, keyword)
 +      CALL keyword_release(keyword)
 +
@@ -66,7 +66,7 @@ diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile'
 +                          description="Number of virtual orbitals in the active space (mode A). "// &
 +                          "Mutually exclusive with ACTIVE_SPACE_BMIN/BMAX.", &
 +                          usage="ACTIVE_SPACE_VIR 10", &
-+                          n_var=1, type_of_var=integer_t, default_i_val=0)
++                          n_var=1, type_of_var=integer_t, default_i_val=-1)
 +      CALL section_add_keyword(section, keyword)
 +      CALL keyword_release(keyword)
 +
@@ -149,8 +149,8 @@ diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile'
     END SUBROUTINE qs_energies_properties
 diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile' '--exclude=*.log' a/src/qs_nac_methods.F b/src/qs_nac_methods.F
 --- a/src/qs_nac_methods.F	1970-01-01 08:00:00.000000000 +0800
-+++ b/src/qs_nac_methods.F	2026-07-08 18:40:32.815560575 +0800
-@@ -0,0 +1,1739 @@
++++ b/src/qs_nac_methods.F	2026-07-15 18:56:39.391435070 +0800
+@@ -0,0 +1,1741 @@
 +!--------------------------------------------------------------------------------------------------!
 +!   CP2K: A general program to perform molecular dynamics simulations                              !
 +!   Copyright 2000-2024 CP2K developers group <https://cp2k.org>                                   !
@@ -534,7 +534,7 @@ diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile'
 +
 +      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nac_init'
 +
-+      INTEGER                                            :: handle, iunit, irep_init
++      INTEGER                                            :: handle, homo_ref, iunit, irep_init
 +      TYPE(cp_logger_type), POINTER                      :: logger
 +      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
 +      TYPE(scf_control_type), POINTER                    :: scf_control
@@ -599,7 +599,7 @@ diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile'
 +            IF (nac_occ_active_space > 0) THEN
 +               CPWARN("NAC+TDDFPT ignores ACTIVE_SPACE_OCC.")
 +            END IF
-+            nac_occ_active_space = 0
++            nac_occ_active_space = mos(1)%homo
 +            IF (nac_vir_active_space > 0) THEN
 +               CPWARN("NAC+TDDFPT ignores ACTIVE_SPACE_VIR.")
 +            END IF
@@ -608,25 +608,39 @@ diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile'
 +            ! Mode B: resolve BMIN/BMAX to (occ, vir) counts relative to HOMO
 +            IF (nac_use_bmin_bmax) THEN
 +               IF (SIZE(mos) > 1) THEN
-+                  nac_occ_active_space = MIN(mos(1)%homo, mos(2)%homo) - (nac_bmin - 1)
-+                  nac_vir_active_space = nac_bmax - MIN(mos(1)%homo, mos(2)%homo)
++                  homo_ref = MIN(mos(1)%homo, mos(2)%homo)
 +               ELSE
-+                  nac_occ_active_space = mos(1)%homo - (nac_bmin - 1)
-+                  nac_vir_active_space = nac_bmax - mos(1)%homo
++                  homo_ref = mos(1)%homo
 +               END IF
-+               IF (nac_occ_active_space < 1) THEN
-+                  CPABORT("NAC ACTIVE_SPACE_BMIN is below the first occupied band.")
++
++               IF (nac_bmin <= homo_ref) THEN
++                  nac_occ_active_space = homo_ref - (nac_bmin - 1)
++               ELSE
++                  nac_occ_active_space = 0
 +               END IF
-+               IF (nac_vir_active_space < 1) THEN
-+                  CPABORT("NAC ACTIVE_SPACE_BMAX must exceed HOMO.")
++
++               IF (nac_bmax > homo_ref) THEN
++                  nac_vir_active_space = nac_bmax - homo_ref
++               ELSE
++                  nac_vir_active_space = 0
 +               END IF
 +            ELSE
-+               IF (nac_occ_active_space <= 0) THEN
-+                  CPABORT("NAC requires ACTIVE_SPACE_OCC (or BMIN/BMAX).")
++               ! Mode A: OCC/VIR
++               ! -1 indicates unspecified. If both are unspecified (-1), abort.
++               IF (nac_occ_active_space == -1 .AND. nac_vir_active_space == -1) THEN
++                  CPABORT("NAC requires ACTIVE_SPACE_OCC/VIR (or BMIN/BMAX).")
 +               END IF
-+               IF (nac_vir_active_space <= 0) THEN
-+                  CPABORT("NAC requires ACTIVE_SPACE_VIR (or BMIN/BMAX).")
-+               END IF
++               ! If only one is unspecified, default it to 0
++               IF (nac_occ_active_space == -1) nac_occ_active_space = 0
++               IF (nac_vir_active_space == -1) nac_vir_active_space = 0
++            END IF
++
++            ! Final validation: allow either to be 0, but their sum must be > 0
++            IF (nac_occ_active_space < 0 .OR. nac_vir_active_space < 0) THEN
++               CPABORT("NAC active space dimensions cannot be negative.")
++            END IF
++            IF (nac_occ_active_space + nac_vir_active_space <= 0) THEN
++               CPABORT("NAC active space must contain at least 1 band (OCC + VIR > 0).")
 +            END IF
 +            IF (SIZE(mos) > 1) THEN
 +               IF (nac_occ_active_space > mos(1)%homo .OR. nac_occ_active_space > mos(2)%homo) THEN
@@ -692,11 +706,7 @@ diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile'
 +      CPASSERT(ASSOCIATED(last_mo_state))
 +
 +      DO ispin = 1, SIZE(mos)
-+         IF (nac_vir_active_space <= 0) THEN
-+            vir = mos(ispin)%nao - mos(ispin)%homo
-+         ELSE
-+            vir = nac_vir_active_space
-+         END IF
++         vir = nac_vir_active_space
 +         CALL cp_fm_struct_create(fm_struct_tmp, &
 +                                  context=blacs_env, &
 +                                  para_env=para_env, &
@@ -1090,16 +1100,8 @@ diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile'
 +                      para_env=para_env)
 +
 +      nao = mo%nao
-+      IF (occ_active_space <= 0) THEN
-+         occ = mo%homo
-+      ELSE
-+         occ = occ_active_space
-+      END IF
-+      IF (vir_active_space <= 0) THEN
-+         vir = nao - mo%homo
-+      ELSE
-+         vir = vir_active_space
-+      END IF
++      occ = occ_active_space
++      vir = vir_active_space
 +      nmo = occ + vir
 +      CALL cp_fm_struct_create(fm_struct_tmp, &
 +                               context=blacs_env, &
@@ -1113,10 +1115,10 @@ diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile'
 +      CALL cp_fm_struct_release(fm_struct_tmp)
 +      CALL cp_fm_to_fm(mo%mo_coeff, &
 +                       mo_coeff, &
-+                       occ + vir, &
-+                       mo%nmo - vir - occ + 1, &
++                       nmo, &
++                       mo%homo - occ + 1, &
 +                       1)
-+      eigenvalues(:) = mo%eigenvalues(mo%nmo - vir - occ + 1:)
++      eigenvalues(:) = mo%eigenvalues(mo%homo - occ + 1:mo%homo - occ + nmo)
 +
 +      CALL timestop(handle)
 +   END SUBROUTINE nac_get_active_space
@@ -1287,12 +1289,12 @@ diff -ruN '--exclude=*.o' '--exclude=*.mod' '--exclude=*.x' '--exclude=Makefile'
 +
 +      CALL get_qs_env(qs_env, para_env=para_env)
 +
-+      occ = nac_occ_active_space; IF (occ <= 0) occ = mo%homo
-+      vir = nac_vir_active_space; IF (vir <= 0) vir = mo%nao - mo%homo
++      occ = nac_occ_active_space
++      vir = nac_vir_active_space
 +      n_active = occ + vir
 +
 +      ALLOCATE (eigenvalues(n_active), eig_eV(n_active))
-+      eigenvalues(:) = mo%eigenvalues(mo%nmo - vir - occ + 1:)
++      eigenvalues(:) = mo%eigenvalues(mo%homo - occ + 1:mo%homo + vir)
 +      eig_eV(:) = eigenvalues(:)*HARTREE_to_eV
 +
 +      IF (para_env%is_source()) THEN
