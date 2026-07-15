@@ -146,6 +146,14 @@ class Elpa(AutotoolsPackage, CudaPackage, ROCmPackage):
 
     depends_on("autoconf@2.71:", type="build", when="@master")
     depends_on("automake", type="build", when="@master")
+    # force_all_x86_kernel patches configure.ac/Makefile.am. Release tarballs
+    # from @2025.06: were produced with automake 1.18.x; if make regenerates
+    # aclocal.m4 it hard-requires aclocal-1.18 (Debian trixie only ships 1.17).
+    # Pull a matching toolchain for those versions, and also touch generated
+    # files after patching (see skip_autotools_regeneration) so we prefer the
+    # already-force-patched configure/Makefile.in over autoreconf.
+    depends_on("autoconf@2.71:", type="build", when="+force_all_x86_kernel @2025.06.001:")
+    depends_on("automake@1.18:", type="build", when="+force_all_x86_kernel @2025.06.001:")
 
     depends_on("blas")
     depends_on("lapack")
@@ -235,6 +243,24 @@ class Elpa(AutotoolsPackage, CudaPackage, ROCmPackage):
                 flags.append("-Wl,--allow-multiple-definition")
 
         return (flags, None, None)
+
+    @run_after("patch")
+    def skip_autotools_regeneration(self):
+        """Keep force-patched configure/Makefile.in; do not regenerate them.
+
+        Patching configure.ac/Makefile.am makes GNU make's maintainer rules
+        treat aclocal.m4/configure/Makefile.in as stale and invoke the
+        tarball's version-locked ``aclocal-N.M`` (e.g. 1.18). Hosts that only
+        ship an older automake (Debian trixie: 1.17) then fail at build time
+        even though we already ship matching patches for the generated files.
+        Bump generated-file mtimes so make skips those rules.
+        """
+        if not self.spec.satisfies("+force_all_x86_kernel"):
+            return
+        with working_dir(self.stage.source_path):
+            for name in ("aclocal.m4", "configure", "Makefile.in", "config.h.in"):
+                if os.path.isfile(name):
+                    os.utime(name, None)
 
     def configure_args(self):
         spec = self.spec

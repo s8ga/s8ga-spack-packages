@@ -77,6 +77,18 @@ with runtime CPUID dispatch for portability. Used in HPC mixed-ISA clusters.
 Verified dry-run matrix: `2025.01.001`, `2025.01.002`, `2025.06.001`, `2026.02.001`, `2026.02.002`.
 Also synced from builtin: `elpa-2026.02.001-wantDebug.patch` (`@2026.02.001:`).
 
+**Autotools regeneration:** force patches edit `configure.ac`/`Makefile.am`.
+`@2025.06:` tarballs need `aclocal-1.18` if regenerated → recipe depends on
+`automake@1.18:` + `autoconf@2.71:` when `+force_all_x86_kernel @2025.06.001:`,
+and `skip_autotools_regeneration` touches `aclocal.m4`/`configure`/`Makefile.in`
+after patch so make prefers the already-patched generated files.
+
+**Autotools note (`+force_all_x86_kernel`):** patching `.ac`/`.am` can make make try
+to regenerate `aclocal.m4` with the tarball's `aclocal-N.M`. `@2025.06:` tarballs
+need `automake@1.18:` (pulled as a build dep). Also `skip_autotools_regeneration`
+touches generated files after patch so builds prefer the already-patched
+`configure`/`Makefile.in` (Debian 1.17 hosts otherwise fail on `aclocal-1.18`).
+
 ### Future Rebase Workflow
 
 When spack-packages updates (new develop tip / new library versions):
