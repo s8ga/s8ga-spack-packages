@@ -381,21 +381,32 @@ class Abacus(CMakePackage, CudaPackage):
     #  Patch (+tests: rewrite NAO test deep paths)                       #
     # ------------------------------------------------------------------ #
 
+    def _iter_unit_test_dirs(self, root):
+        """Yield unit-test directories under *root* (recursive).
+
+        Walks ``root/source`` when present, otherwise ``root`` itself (for
+        flattened trees under ``share/abacus/tests``). Yields directories whose
+        basename matches ``test*`` (``test``, ``test_serial``, ``test_pw``,
+        ``test_parallel``, ``test_gpu``, …). Skips ``CMakeFiles`` and ``.git``.
+        """
+        source = join_path(root, "source")
+        walk_root = source if os.path.isdir(source) else root
+        skip = {"CMakeFiles", ".git"}
+        for dirpath, dirnames, _filenames in os.walk(walk_root):
+            dirnames[:] = [d for d in dirnames if d not in skip]
+            if os.path.basename(dirpath).startswith("test"):
+                yield dirpath
+
     def patch(self):
         """Apply version-specific patches and +tests source rewrites."""
         if "+tests" in self.spec:
             # Rewrite deep relative paths for flat install layout.
             # Patterns: ../../../../../tests/PP_ORB/ and ../../../../../source/...
-            # Use test* to also catch test_serial, test_pw, test_parallel, etc.
-            test_cpp_dirs = [
-                join_path(self.stage.source_path, "source", "*", "test*"),
-                join_path(self.stage.source_path, "source", "*", "*", "test*"),
-            ]
-            for pattern in test_cpp_dirs:
-                for cpp in glob.glob(join_path(pattern, "*.cpp")):
-                    # tests/PP_ORB/ deep paths (4-5 levels)
+            for test_dir in self._iter_unit_test_dirs(self.stage.source_path):
+                for cpp in glob.glob(join_path(test_dir, "*.cpp")):
+                    # tests/PP_ORB/ deep paths (3–7 levels: IO, NAO, nested ATen, …)
                     filter_file(
-                        r'"(\./)?(\.\./){4,5}tests/PP_ORB/',
+                        r'"(\./)?(\.\./){3,7}tests/PP_ORB/',
                         '"./PP_ORB/',
                         cpp,
                     )
@@ -649,11 +660,9 @@ class Abacus(CMakePackage, CudaPackage):
             "CMakeFiles", "Makefile", "cmake_install.cmake",
             "CTestTestfile.cmake", "CMakeCache.txt", "cmake_pch",
         }
-        for build_test_dir in glob.glob(join_path(build, "source", "*", "test*")) + \
-                              glob.glob(join_path(build, "source", "*", "*", "test*")):
-            if not os.path.isdir(build_test_dir):
-                continue
-            rel = os.path.relpath(build_test_dir, join_path(build, "source"))
+        build_source = join_path(build, "source")
+        for build_test_dir in self._iter_unit_test_dirs(build):
+            rel = os.path.relpath(build_test_dir, build_source)
             dst_module = join_path(dst, rel)
             mkdirp(dst_module)
             for item in os.listdir(build_test_dir):
@@ -668,27 +677,32 @@ class Abacus(CMakePackage, CudaPackage):
                     if not os.path.exists(dst_item):
                         install(src_item, dst_module)
 
-        # 3. Copy shared test data (PP_ORB) into each module test dir.
-        #    NAO and IO tests reference ./PP_ORB/ (rewritten by patch() from
-        #    deep relative paths). PP_ORB is small and shared across modules.
-        pp_orb_src = join_path(src, "tests", "PP_ORB")
-        if os.path.isdir(pp_orb_src):
-            for module_test_dir in glob.glob(join_path(dst, "source_*", "test*")) + \
-                                    glob.glob(join_path(dst, "source_*", "*", "test*")) + \
-                                    glob.glob(join_path(dst, "module_*", "test*")) + \
-                                    glob.glob(join_path(dst, "module_*", "*", "test*")):
-                if os.path.isdir(module_test_dir):
-                    install_tree(pp_orb_src, join_path(module_test_dir, "PP_ORB"))
+        # 3. Symlink shared PP_ORB into each module test dir (one real copy at
+        #    dst/PP_ORB from step 1). Tests reference ./PP_ORB/ after patch().
+        pp_orb_dst = join_path(dst, "PP_ORB")
+        if os.path.isdir(pp_orb_dst):
+            for module_test_dir in self._iter_unit_test_dirs(dst):
+                link_path = join_path(module_test_dir, "PP_ORB")
+                if os.path.lexists(link_path):
+                    continue
+                rel_link = os.path.relpath(pp_orb_dst, module_test_dir)
+                try:
+                    os.symlink(rel_link, link_path)
+                except OSError as exc:
+                    tty.warn(
+                        "PP_ORB symlink failed for {0} ({1}); copying".format(
+                            module_test_dir, exc
+                        )
+                    )
+                    install_tree(pp_orb_dst, link_path)
 
         # 4. Copy source-only test data files (.txt, .json, .html, etc.) that
         #    were not copied to the build dir by CMake's file(COPY).  The NAO
         #    deep-path rewrite in patch() turns "../../../source/.../test/FILE"
         #    into "./FILE", so these files must sit next to the binary.
-        for src_test_dir in glob.glob(join_path(src, "source", "*", "test*")) + \
-                             glob.glob(join_path(src, "source", "*", "*", "test*")):
-            if not os.path.isdir(src_test_dir):
-                continue
-            rel = os.path.relpath(src_test_dir, join_path(src, "source"))
+        src_source = join_path(src, "source")
+        for src_test_dir in self._iter_unit_test_dirs(src):
+            rel = os.path.relpath(src_test_dir, src_source)
             dst_module = join_path(dst, rel)
             if not os.path.isdir(dst_module):
                 continue

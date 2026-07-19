@@ -19,7 +19,7 @@ spack_repo/
   s8_custom_repo/          # Legacy empty placeholder (repo.yaml only)
 scripts/
   verify_overrides.sh              # Verify upstream build file compatibility
-  abacus_run_module_tests.sh       # Container: MODULE_* unit tests
+  abacus_run_module_tests.sh       # Container: module unit tests (MODULE_* / LTS)
   abacus_run_integration_tests.sh  # Container: Autotest.sh integration tests
 ```
 
@@ -215,9 +215,19 @@ These are version-disjoint (upstream renamed the CMake option). Never enable bot
 | L3 | `+tests` variant: GoogleTest unit tests (resource gtest v1.14.0) | No (needs `+tests`) |
 | L4 | Autotest.sh integration tests (MPI, CASES_CPU.txt) | Manual |
 
-Container helpers for L3/L4: `scripts/abacus_run_module_tests.sh`,
-`scripts/abacus_run_integration_tests.sh` (expect install under
-`/opt/spack/linux-x86_64_v3/`).
+Container / local helpers for L3/L4: `scripts/abacus_run_module_tests.sh`,
+`scripts/abacus_run_integration_tests.sh`. Tests root resolution:
+`$ABACUS_TESTS` → `$ABACUS_PREFIX/share/abacus/tests` → PATH `abacus`
+prefix → legacy `/opt/spack/linux-x86_64_v3/…`. Integration passes
+`Autotest.sh -a <abacus>`. Module unit-test discovery: prefer `MODULE_*`
+(develop/`source_*/test*`); else ELF binaries under `module_*/test*`
+(LTS 3.10 naming, e.g. `dm_mixing_test`).
+
+`+tests` packaging notes: recursive `_iter_unit_test_dirs` under `source/`
+(covers deep trees like `…/ATen/kernels/test`); one real `PP_ORB/` plus
+relative symlinks into each module test dir; path rewrite widens PP_ORB
+`(\.\./){3,7}`. Upstream CMake still installs unit binaries only into the
+build tree (`BINARY_DIR/tests`) — prefix install is a recipe-side step.
 
 ## HPC Container Factory Integration
 

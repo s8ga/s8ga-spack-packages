@@ -2,19 +2,58 @@
 #
 # abacus_run_integration_tests.sh — Batch run ABACUS integration tests (01–10)
 #
-# Auto-discovers the ABACUS install under /opt/spack/linux-x86_64_v3/
-# and runs all integration test groups sequentially.
+# Resolves the tests tree and abacus binary, then runs Autotest.sh groups
+# sequentially with ``-a <abacus>``.
 #
-# Usage (inside container):
-#   podman run --rm --network=host \
-#     -v $PWD/scripts/abacus_run_integration_tests.sh:/tmp/run_tests.sh:ro \
-#     abacus_opensource:3.9.0.27-force-avx512 bash /tmp/run_tests.sh
+# Resolution order for tests root:
+#   1. $ABACUS_TESTS
+#   2. $ABACUS_PREFIX/share/abacus/tests
+#   3. $(dirname $(dirname $(command -v abacus)))/share/abacus/tests
+#   4. legacy /opt/spack/linux-x86_64_v3/abacus-*/share/abacus/tests
+#
+# Usage (local / container):
+#   ABACUS_PREFIX=$(spack -e abacus-lts location -i abacus) \
+#     bash scripts/abacus_run_integration_tests.sh
 
 set -eu
 
-TESTS="$(ls -d /opt/spack/linux-x86_64_v3/abacus-*/share/abacus/tests 2>/dev/null | head -1)"
-if [[ -z "$TESTS" ]]; then
-    echo "ERROR: Cannot find test dir under /opt/spack/linux-x86_64_v3/" >&2
+resolve_tests_root() {
+    if [[ -n "${ABACUS_TESTS:-}" ]]; then
+        printf '%s\n' "$ABACUS_TESTS"
+        return 0
+    fi
+    if [[ -n "${ABACUS_PREFIX:-}" ]]; then
+        printf '%s\n' "$ABACUS_PREFIX/share/abacus/tests"
+        return 0
+    fi
+    if command -v abacus >/dev/null 2>&1; then
+        local prefix
+        prefix="$(dirname "$(dirname "$(command -v abacus)")")"
+        if [[ -d "$prefix/share/abacus/tests" ]]; then
+            printf '%s\n' "$prefix/share/abacus/tests"
+            return 0
+        fi
+    fi
+    # Legacy container layout
+    ls -d /opt/spack/linux-x86_64_v3/abacus-*/share/abacus/tests 2>/dev/null | head -1
+}
+
+resolve_abacus_bin() {
+    if [[ -n "${ABACUS_PREFIX:-}" && -x "${ABACUS_PREFIX}/bin/abacus" ]]; then
+        printf '%s\n' "$ABACUS_PREFIX/bin/abacus"
+        return 0
+    fi
+    if command -v abacus >/dev/null 2>&1; then
+        command -v abacus
+        return 0
+    fi
+    return 1
+}
+
+TESTS="$(resolve_tests_root || true)"
+if [[ -z "$TESTS" || ! -d "$TESTS" ]]; then
+    echo "ERROR: Cannot find ABACUS tests dir." >&2
+    echo "  Set ABACUS_TESTS, ABACUS_PREFIX, or put abacus on PATH." >&2
     exit 1
 fi
 
@@ -24,11 +63,18 @@ if [[ ! -f "$AUTOTEST" ]]; then
     exit 1
 fi
 
+ABACUS_BIN="$(resolve_abacus_bin || true)"
+if [[ -z "$ABACUS_BIN" ]]; then
+    echo "ERROR: Cannot find abacus binary (set ABACUS_PREFIX or PATH)." >&2
+    exit 1
+fi
+
 DIRS="01_PW 02_NAO_Gamma 03_NAO_multik 04_FF 05_rtTDDFT 06_SDFT 07_OFDFT 08_EXX 09_DeePKS 10_others"
 
 echo "================================================================"
 echo "  ABACUS Integration Tests"
 echo "  $TESTS"
+echo "  abacus: $ABACUS_BIN"
 echo "================================================================"
 echo ""
 
@@ -57,7 +103,7 @@ for dir in $DIRS; do
     t0=$(date +%s)
 
     rc=0
-    (cd "$TESTS/$dir" && bash "$AUTOTEST") || rc=$?
+    (cd "$TESTS/$dir" && bash "$AUTOTEST" -a "$ABACUS_BIN") || rc=$?
 
     t1=$(date +%s)
     if [[ $rc -eq 0 ]]; then

@@ -27,7 +27,7 @@ spack_repo/
   s8_custom_repo/          # Legacy empty placeholder (no packages)
 scripts/
   verify_overrides.sh              # Upstream source/patch compatibility checks
-  abacus_run_module_tests.sh       # Container helper: MODULE_* unit tests
+  abacus_run_module_tests.sh       # Container helper: module unit tests (MODULE_* / LTS)
   abacus_run_integration_tests.sh  # Container helper: Autotest.sh groups
 ```
 
@@ -133,16 +133,20 @@ GPU: `CudaPackage` mixin (`+cuda`, `cuda_arch=...`), plus optional
 Related packages in the same `abacus` namespace: `libri`, `libcomm`, `libnpy`,
 `nep-cpu`.
 
-## Container test helpers
+## Container / local test helpers
 
-Inside HPC container images that install under `/opt/spack/linux-x86_64_v3/`:
+Scripts resolve the tests tree via `$ABACUS_TESTS`, `$ABACUS_PREFIX`, PATH
+`abacus`, or the legacy `/opt/spack/linux-x86_64_v3/…` layout. Needs
+`abacus+tests` (one shared `PP_ORB/` + per-module symlinks).
 
 ```bash
-# Module GoogleTest binaries (needs abacus+tests)
-bash scripts/abacus_run_module_tests.sh
+# Module GoogleTest binaries (MODULE_* on develop; ELF under module_*/test* on LTS)
+ABACUS_PREFIX=$(spack -e <env> location -i abacus) \
+  bash scripts/abacus_run_module_tests.sh
 
-# Integration Autotest.sh groups 01–10
-bash scripts/abacus_run_integration_tests.sh
+# Integration Autotest.sh groups 01–10 (passes -a <abacus>)
+ABACUS_PREFIX=$(spack -e <env> location -i abacus) \
+  bash scripts/abacus_run_integration_tests.sh
 ```
 
 ## Documentation
