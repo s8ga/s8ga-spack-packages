@@ -145,7 +145,7 @@ class Vasp(MakefilePackage, CMakePackage, CudaPackage):
 
     # cmake build needs pkg-config and cmake itself
     depends_on("pkgconfig", type="build", when="build_system=cmake")
-    depends_on("cmake", type="build", when="build_system=cmake")
+    depends_on("cmake@3.24:", type="build", when="build_system=cmake")
 
     # at the very least the nvhpc mpi seems required
     requires("^nvhpc+mpi+lapack+blas", when="%nvhpc")
@@ -663,6 +663,27 @@ class CMakeBuilder(cmake.CMakeBuilder):
                 args.append(self.define("VASP_DFTD4_API", "V3"))
             else:
                 args.append(self.define("VASP_DFTD4_API", "V4"))
+
+        # Force VASP_TARGET_CPU to match spack's resolved target, preventing
+        # vasp-cmake from appending -march=native (or -tp=host for NVHPC) via
+        # target_compile_options — that flag comes AFTER spack's wrapper-injected
+        # -march and wins, breaking target portability (e.g. force_avx512 on
+        # mixed-ISA clusters where build host != run host).
+        try:
+            opt_flags = spec.target.optimization_flags(
+                spec.compiler.name, str(spec.compiler.version)
+            )
+        except Exception:
+            opt_flags = None
+        if opt_flags:
+            m = re.search(r"-march=(\S+)", opt_flags)
+            if m:
+                args.append(self.define("VASP_TARGET_CPU", m.group(1)))
+            elif spec.satisfies("%nvhpc"):
+                # NVHPC uses -tp <name> instead of -march=<name>
+                m = re.search(r"-tp\s+(\S+)", opt_flags)
+                if m:
+                    args.append(self.define("VASP_TARGET_CPU", m.group(1)))
 
         # Custom find modules in vasp-cmake don't search CMAKE_PREFIX_PATH;
         # pass explicit ROOT for each spack-managed dependency.
