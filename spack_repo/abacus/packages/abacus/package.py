@@ -62,11 +62,6 @@ class Abacus(CMakePackage, CudaPackage):
             commit="f71921fe848659deac8db319cd4311b55b5ad480")
     version("3.10.0-lts", tag="LTSv3.10.0",
             commit="1be7425f0e73dacbe9c9e7be3fbfc9df30d100fa")
-    # Pre-LTS develop line: same build system family as LTS (FindMKL.cmake,
-    # ENABLE_DEEPKS, cmake/ modules) but on the develop branch topology.
-    # Each minor series has its latest patch as the canonical pick.
-    version("3.8.5", tag="v3.8.5",
-            commit="1f9779ded0bc91414219fcef587fad4880af172f")
 
     # ------------------------------------------------------------------ #
     #  Variants                                                          #
@@ -133,8 +128,8 @@ class Abacus(CMakePackage, CudaPackage):
     variant(
         "deepks",
         default=False,
-        when="@3.8:3.10",
-        description="DeePKS (maps to ENABLE_DEEPKS, LTS line and pre-LTS develop)",
+        when="@3.10",
+        description="DeePKS (maps to ENABLE_DEEPKS, LTS line)",
     )
     variant(
         "mlalgo",
@@ -326,20 +321,19 @@ class Abacus(CMakePackage, CudaPackage):
     #  Conflicts                                                         #
     # ------------------------------------------------------------------ #
 
-    # GNU+MKL is unsupported on LTS, pre-LTS develop, and on develop <3.9.0.25:
-    # FindMKL only locates Intel Fortran interfaces (mkl_intel_lp64 /
-    # mkl_intel_thread), so %gcc linking fails.
+    # GNU+MKL is unsupported on LTS and on develop <3.9.0.25: FindMKL only
+    # locates Intel Fortran interfaces there, so %gcc linking fails.
     conflicts(
         "%gcc ^intel-oneapi-mkl",
-        when="@3.8:3.10",
-        msg="MKL on this version only provides Intel Fortran interfaces. "
+        when="@3.10",
+        msg="LTS MKL only provides Intel Fortran interfaces. "
         "Use %intel-oneapi-compilers with intel-oneapi-mkl, or pick a "
         "non-MKL BLAS/FFTW provider (e.g. openblas + fftw).",
     )
     conflicts(
         "%gcc ^intel-oneapi-mkl",
         when="@:3.9.0.24",
-        msg="develop <3.9.0.25: GNU+MKL not supported (same reason).",
+        msg="develop <3.9.0.25: GNU+MKL not supported (same as LTS).",
     )
 
     # cuBLASMp requires cuSOLVERMp (enforced by CMake, conflict for clarity)
@@ -526,11 +520,10 @@ class Abacus(CMakePackage, CudaPackage):
             args.append(self.define("DeePMD_DIR", spec["deepmdkit"].prefix))
 
         # --- version-branched options (core architecture) ---
-        if spec.satisfies("@3.8:3.10"):
-            # LTS + pre-LTS develop: same old build system family
-            # (FindMKL.cmake, ENABLE_DEEPKS, cmake/ modules)
+        if spec.satisfies("@3.10"):
+            # LTS old build system
             args.append(self.define_from_variant("ENABLE_DEEPKS", "deepks"))
-            # ENABLE_PAW exists but requires libpaw_interface (no spack package).
+            # LTS still has ENABLE_PAW but requires libpaw_interface (no spack package).
             # Force OFF — PAW is not supported in this build.
             args.append(self.define("ENABLE_PAW", False))
             if "+deepks" in spec:
@@ -739,8 +732,8 @@ class Abacus(CMakePackage, CudaPackage):
 
     def test_info(self):
         """ensure abacus --info shows build details"""
-        if self.spec.satisfies("@:3.10"):
-            raise SkipTest("--info not available before 3.11.0-beta line")
+        if self.spec.satisfies("@3.10"):
+            raise SkipTest("--info not available on LTS")
         abacus = which(self.prefix.bin.abacus)
         out = abacus("--info", output=str.split, error=str.split)
         assert "Compiler" in out
