@@ -25,8 +25,10 @@ scripts/
 
 `s8_overrides` last rebased against
 [spack/spack-packages](https://github.com/spack/spack-packages)
-**`develop@18aeef72`** (local builtin path under `~/.spack/package_repos/`,
-api v2.2).
+**`develop@4b27eea0cc`** (2026-09-05; only openblas drifted since
+`develop@18aeef72`: 0.3.34 + #6246 deadlock URL patch + #5979 `~fortran`
+F_COMPILER=none + #5504 macOS dylib + #5883 fork:safety test disable —
+all inherited wholesale; elpa/fftw unchanged).
 
 ## Repo Registration
 
@@ -146,7 +148,7 @@ Checks:
 This is a **compatibility / applyability** gate, not a full build or SIMD
 content proof. After install, still use `objdump … | grep -c zmm`.
 
-Default versions: OpenBLAS `0.3.30`/`0.3.32`/`0.3.33`, ELPA
+Default versions: OpenBLAS `0.3.30`/`0.3.32`/`0.3.33`/`0.3.34`, ELPA
 `2025.01.001`/`2025.01.002`/`2025.06.001`/`2026.02.001`/`2026.02.002`,
 FFTW `3.3.10`/`3.3.11`.
 

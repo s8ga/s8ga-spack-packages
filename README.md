@@ -33,7 +33,10 @@ scripts/
 
 Current `s8_overrides` recipes are rebased on
 [spack/spack-packages](https://github.com/spack/spack-packages)
-**`develop@18aeef72`** (builtin api v2.2).
+**`develop@4b27eea0cc`** (2026-09-05, builtin api v2.2). OpenBLAS is the
+only package that drifted (0.3.34 + OpenMP deadlock fix #6246 + `~fortran`
+auto-detect fix #5979 + macOS dylib fix #5504); ELPA and FFTW are
+byte-identical to the previous baseline `develop@18aeef72`.
 
 ## Quick Start
 

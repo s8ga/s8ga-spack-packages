@@ -32,7 +32,7 @@ OVERRIDE_DIR="$REPO_ROOT/spack_repo/s8_overrides/packages"
 
 # Default versions — supported force_avx512 windows only (~1 year / verified).
 # OpenBLAS: @0.3.30:  |  ELPA: @2025:  |  FFTW: @3.3.10:
-OPENBLAS_VERSIONS=("0.3.30" "0.3.32" "0.3.33")
+OPENBLAS_VERSIONS=("0.3.30" "0.3.32" "0.3.33" "0.3.34")
 ELPA_VERSIONS=("2025.01.001" "2025.01.002" "2025.06.001" "2026.02.001" "2026.02.002")
 FFTW_VERSIONS=("3.3.10" "3.3.11")
 
