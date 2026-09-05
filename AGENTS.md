@@ -21,6 +21,8 @@ scripts/
   verify_overrides.sh              # Verify upstream build file compatibility
   abacus_run_module_tests.sh       # Container: module unit tests (MODULE_* / LTS)
   abacus_run_integration_tests.sh  # Container: Autotest.sh integration tests
+docs/
+  spack-recipe-inheritance-spike.md  # Decision record: whole-file fork, not inheritance
 ```
 
 `s8_overrides` last rebased against
@@ -90,6 +92,16 @@ to regenerate `aclocal.m4` with the tarball's `aclocal-N.M`. `@2025.06:` tarball
 need `automake@1.18:` (pulled as a build dep). Also `skip_autotools_regeneration`
 touches generated files after patch so builds prefer the already-patched
 `configure`/`Makefile.in` (Debian 1.17 hosts otherwise fail on `aclocal-1.18`).
+
+### Why whole-file fork (never inheritance-based recipes)
+
+`docs/spack-recipe-inheritance-spike.md` (2026-09-05, spack 1.2.0): cross-repo
+recipe inheritance (`class Foo(BuiltinFoo)` in a custom repo) works
+mechanically, but `package_hash` hashes only the winning package.py's
+single-file AST — base-class edits are invisible to the DAG hash, so
+buildcache silently serves binaries built with stale logic. Whole-file fork +
+rebase + `verify_overrides.sh` keeps drift visible; generic improvements go
+upstream-first. Re-evaluate only if spack makes package_hash follow imports.
 
 ### Future Rebase Workflow
 

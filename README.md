@@ -29,6 +29,8 @@ scripts/
   verify_overrides.sh              # Upstream source/patch compatibility checks
   abacus_run_module_tests.sh       # Container helper: module unit tests (MODULE_* / LTS)
   abacus_run_integration_tests.sh  # Container helper: Autotest.sh groups
+docs/
+  spack-recipe-inheritance-spike.md  # Decision record: whole-file fork vs inheritance
 ```
 
 Current `s8_overrides` recipes are rebased on
