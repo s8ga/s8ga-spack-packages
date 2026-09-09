@@ -23,7 +23,20 @@ scripts/
   abacus_run_integration_tests.sh  # Container: Autotest.sh integration tests
 docs/
   spack-recipe-inheritance-spike.md  # Decision record: whole-file fork, not inheritance
+  upstreaming-abacus-deps.md         # libnpy/libcomm/libri/nep-cpu → spack-packages (2026-09-09)
 ```
+
+### Upstreaming the four ABACUS deps (2026-09-09)
+
+Prepared and validated upstream PRs for `libnpy`/`libcomm`/`libri`/`nep-cpu`
+in `~/spack-packages` (worktrees in `~/spack-worktrees/`, PR bodies in
+`~/spack-worktrees/pr-bodies/`); branches pushed to fork `s8ga/spack-packages`.
+**PRs are opened manually by s8ga only — agents must never open PRs.**
+Details, validation log, and post-merge migration steps:
+`docs/upstreaming-abacus-deps.md`. Note: `s8_custom_repo` is NOT an empty
+placeholder (contains libmbd and vasp) and is globally registered —
+`spack create` without `-r` writes into it; see the doc's "environment side
+effects" section.
 
 `s8_overrides` last rebased against
 [spack/spack-packages](https://github.com/spack/spack-packages)
