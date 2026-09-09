@@ -98,7 +98,31 @@ Branch stack: `add-libri` sits on top of `add-libcomm` (LibRI headers
 
 ## Future work (deliberately out of scope now)
 
-- abacus recipe wiring PR upstream (add `+libri`/`+deepks`/`+mlalgo`/`+nep`
-  variants once the deps merge; coordinate with maintainer bitllion).
+- **abacus "full recipe" PR — IN PREPARATION (2026-09-10)**, decisions
+  locked with s8ga: add ALL supported formal versions (3.9.0.10–.27,
+  3.10.0; no betas) + all feature variants (mpi, float-fftw, pexsi,
+  libri→libnpy/libcomm, rapidjson, deepmd, deepks@3.10/mlalgo, nep, cuda
+  stack incl. nccl/cusolvermp/cublasmp/cuda-mpi) + 3 patches
+  (lts-pexsi-compile @3.10+pexsi, lts-cuda13-fix @3.10+cuda — kept gated
+  per user decision, v3.9.0.10-cstdint). EXCLUDED: +tests (user), kml/dftd4
+  (beta-gated), beta versions. Local s8 abacus repo stays FOREVER (beta.6
+  in production). Open when the four dep PRs (#6404/#6405/#6406 + libri)
+  are merged; then a clean branch = develop + abacus files only.
+- Status: integration branch `tmp-integration` (develop + 4 dep packages +
+  enriched abacus recipe, commit fce54b1c) validated: ruff clean, 8/9
+  concretize matrix green. OPEN BUG (last session): `mpi+cuda` fails to
+  concretize STANDALONE (`spack spec mpi+cuda` → unsatisfiable) while
+  `openmpi+cuda` is OK — need to check which MPI providers lack a +cuda
+  variant vs which is chosen as default provider; the old abacus-lts env
+  pins openmpi so production never hit this. Recipe written so the cuda-mpi
+  edge is `depends_on("mpi+cuda", when="+cuda-mpi")` (verbatim from our
+  fork, where env always pinned openmpi).
+- Repo-name discovery (2026-09-10): `abacusmodeling/abacus-develop` is a
+  STALE MIRROR (tags stop at v3.9.0.19/v3.10.1); `deepmodeling/
+  abacus-develop` is canonical (has v3.9.0.20–.27, all v3.11.0-beta*).
+  The enriched recipe therefore pins version-level url= overrides to
+  deepmodeling tarballs for the new versions; existing upstream versions
+  (3.10.1, 3.9.0.19) left on abacusmodeling — ask bitllion which org is
+  canonical in the PR.
 - Optional: upstream a CMakeLists to brucefan1983/NEP_CPU to replace the
   manual compile+archive in nep-cpu.
