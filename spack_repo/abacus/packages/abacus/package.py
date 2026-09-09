@@ -262,6 +262,19 @@ class Abacus(CMakePackage, CudaPackage):
     # so every ABACUS version (LTS + develop) requires py-torch <= 2.4.
     depends_on("py-torch@2.1:2.4 ~cuda", when="+deepks")
     depends_on("py-torch@2.1:2.4 ~cuda", when="+mlalgo")
+    # torch 2.1-2.4 predate CUDA 13: py_torch's cuda ladder leaves @11: open,
+    # but a source build of torch 2.4 against CUDA 13 fails on CCCL/C++17
+    # removals. (Found 2026-09-10 auditing the cuda_arch=80 support matrix.)
+    conflicts(
+        "^cuda@13:",
+        when="+deepks +cuda",
+        msg="py-torch 2.1:2.4 cannot build against CUDA 13; use CUDA 12.x.",
+    )
+    conflicts(
+        "^cuda@13:",
+        when="+mlalgo +cuda",
+        msg="py-torch 2.1:2.4 cannot build against CUDA 13; use CUDA 12.x.",
+    )
     depends_on("libnpy", when="+deepks")
     depends_on("libnpy", when="+mlalgo")
 
@@ -283,13 +296,32 @@ class Abacus(CMakePackage, CudaPackage):
     # GPU acceleration
     # ABACUS uses find_package(CUDAToolkit REQUIRED) + enable_language(CUDA).
     depends_on("cuda", when="+cuda")
-    # nccl/cusolvermp/cublasmp default ~cuda in spack; force +cuda so
-    # cuda_arch (sticky) propagates from the root spec via unify.
+    # nccl/cusolvermp/cublasmp default ~cuda in spack; force +cuda so the
+    # toolkit unifies. cuda_arch does NOT propagate across dependency edges
+    # (sticky variant), so it must be enumerated explicitly — otherwise nccl
+    # stays at cuda_arch=none and its own conflicts fire (found 2026-09-10
+    # via standalone concretization; cusolvermp/cublasmp use the same
+    # enumerated pattern internally for their own nccl/nvshmem edges).
     depends_on("nccl+cuda", when="+nccl")
     depends_on("cusolvermp+cuda", when="+cusolvermp")
     depends_on("cublasmp+cuda", when="+cublasmp")
-    # CUDA-aware MPI: MPI implementation must be built with CUDA support.
-    depends_on("mpi+cuda", when="+cuda-mpi")
+    for _arch in CudaPackage.cuda_arch_values:
+        with when(f"cuda_arch={_arch}"):
+            depends_on(f"nccl cuda_arch={_arch}", when="+nccl")
+            depends_on(f"cusolvermp cuda_arch={_arch}", when="+cusolvermp")
+            depends_on(f"cublasmp cuda_arch={_arch}", when="+cublasmp")
+    # CUDA-aware MPI: `mpi+cuda` is unsatisfiable by construction (the
+    # virtual would demand +cuda on EVERY provider; mpich/mvapich2 have no
+    # such variant). Restrict to providers that can express it (abinit's
+    # gpu_aware_mpi pattern).
+    requires(
+        "^openmpi+cuda",
+        "^mpich+cuda",
+        when="+cuda-mpi",
+        policy="one_of",
+        msg="+cuda-mpi requires an MPI implementation built with CUDA support "
+        "(openmpi+cuda or mpich+cuda).",
+    )
     # ELPA GPU diagonalization: see bidirectional constraint above.
 
     # OpenMP forward propagation: pick threaded BLAS/FFTW/MKL providers

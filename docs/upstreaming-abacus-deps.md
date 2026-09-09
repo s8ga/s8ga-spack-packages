@@ -109,14 +109,42 @@ Branch stack: `add-libri` sits on top of `add-libcomm` (LibRI headers
   in production). Open when the four dep PRs (#6404/#6405/#6406 + libri)
   are merged; then a clean branch = develop + abacus files only.
 - Status: integration branch `tmp-integration` (develop + 4 dep packages +
-  enriched abacus recipe, commit fce54b1c) validated: ruff clean, 8/9
-  concretize matrix green. OPEN BUG (last session): `mpi+cuda` fails to
-  concretize STANDALONE (`spack spec mpi+cuda` → unsatisfiable) while
-  `openmpi+cuda` is OK — need to check which MPI providers lack a +cuda
-  variant vs which is chosen as default provider; the old abacus-lts env
-  pins openmpi so production never hit this. Recipe written so the cuda-mpi
-  edge is `depends_on("mpi+cuda", when="+cuda-mpi")` (verbatim from our
-  fork, where env always pinned openmpi).
+  enriched abacus recipe) validated 2026-09-10: ruff clean, concretize
+  matrix 14/14 green. TWO LATENT BUGS found & fixed in the CUDA wiring —
+  **both exist verbatim in our local s8 abacus recipe too** (masked in
+  production because envs are CPU-only + unify + pinned preferences):
+  1. `depends_on("mpi+cuda", when="+cuda-mpi")` is unsatisfiable by
+     construction — the virtual would require EVERY MPI provider to have a
+     +cuda variant (mpich/mvapich2 don't). Fixed with abinit's
+     `requires("^openmpi+cuda", "^mpich+cuda", policy="one_of")` pattern.
+     Only package in all of builtin that ever wrote `mpi+cuda` was ours.
+  2. cuda_arch does NOT propagate across dependency edges (sticky variant;
+     "propagates via unify" was a wrong assumption). `+nccl` with root
+     cuda_arch left nccl at cuda_arch=none → its own conflicts fired.
+     Fixed with enumerated per-arch edges (the cusolvermp/cublasmp
+     internal pattern): for arch in CudaPackage.cuda_arch_values:
+     depends_on(f"nccl cuda_arch={arch}", when="+nccl cuda_arch={arch}") etc.
+  RECOMMENDED LOCAL BACKPORT: DONE 2026-09-10 — both fixes applied to
+  spack_repo/abacus/packages/abacus/package.py and verified in a throwaway
+  env (nccl/cusolvermp/cublasmp rows + cuda-mpi^openmpi+cuda all green).
+- cuda_arch=80 (A100) support audit (2026-09-10, /tmp/fork-audit): 80 is in
+  CudaPackage.cuda_arch_values; CUDA 11–13 all cover sm_80 (13 dropped only
+  <sm_75). elpa builds with --with-nvidia-compute-capability=sm_80. nccl
+  needs explicit cuda_arch (conflicts on none) — now propagated; nccl
+  version↔cuda matrix: 2.27+→cuda@12:13, 2.22–2.26→cuda@12, 2.16–2.21→
+  cuda@11:12. cusolvermp: cuda@12:, nccl@2.18.5:. cublasmp: cuda@12:,
+  nvshmem@3.1: (cuda@11: for 3.2.5+) — both propagate arch internally. gcc14
+  host requires cuda@12.6+ (nvcc 12.4 caps at gcc 13) — unrelated to us.
+  py-torch guard: web-verified (Gemini/Google, pytorch.org release notes) —
+  official CUDA 13 support starts at torch 2.9; torch 2.4 tops out at CUDA
+  12.4 and cannot build vs CUDA 13, even though spack's py_torch ladder
+  (cuda@11: for @2.4:) permits it on paper → added
+  conflicts("^cuda@13:", when="+deepks/+mlalgo +cuda") to BOTH the
+  integration recipe and the local s8 recipe; verified firing (^cuda@13.0
+  rejected, ^cuda@12.8 accepted with gcc 14).
+- Patch dry-runs vs real staged tarballs (2026-09-10): lts-pexsi-compile
+  (2 files) + lts-cuda13-fix (4 files) apply clean on BOTH v3.10.1 and
+  LTSv3.10.0; v3.9.0.10-cstdint (1 file) clean on v3.9.0.10. 5/5 exit=0.
 - Repo-name discovery (2026-09-10): `abacusmodeling/abacus-develop` is a
   STALE MIRROR (tags stop at v3.9.0.19/v3.10.1); `deepmodeling/
   abacus-develop` is canonical (has v3.9.0.20–.27, all v3.11.0-beta*).
