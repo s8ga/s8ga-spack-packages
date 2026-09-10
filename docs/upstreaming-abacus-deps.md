@@ -96,7 +96,89 @@ Branch stack: `add-libri` sits on top of `add-libcomm` (LibRI headers
   other envs re-concretizing will pick up today's develop. Rollback:
   `spack repo set --destination ~/.spack/package_repos/fncqgg4 builtin`.
 
-## Future work (deliberately out of scope now)
+## Container build validation (2026-09-10, abacus big-PR prep)
+
+Environment: podman container `abacus-build`
+(`nvcr.io/nvidia/nvhpc:26.5-devel-cuda_multi-ubuntu24.04`, `--network=host`,
+proxy `100.77.110.122:40022`, USTC apt mirror). gcc 13.3 host compiler;
+CUDA **12.9** and **13.2** toolkits under
+`/opt/nvidia/hpc_sdk/Linux_x86_64/2026/cuda/{12.9,13.2}`; nvhpc 26.5
+math_libs shared, with per-version subdirs
+`26.5/math_libs/{12.9,13.2}/{include,lib64}`.
+
+### Raw cmake matrix (round 3, `/work/build3-*`, `BUILD3-RESULTS.txt`)
+
+All rows: `-DUSE_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=80 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DENABLE_LCAO=OFF`, make -j18.
+
+| Row | Source | CUDA | Result |
+|-----|--------|------|--------|
+| A | 3.10.1 + s8 patches | 13.2 | **OK** (`abacus_pw`, links cublas/cufft/cudart 13) |
+| B | 3.10.1 vanilla | 13.2 | **FAIL 6s**: `#error Thrust requires at least C++17` (CCCL 3 rejects the LTS default C++14) |
+| C | 3.10.1 + s8 patches | 12.9 | **OK** (`abacus_pw`) |
+| D | 3.9.0.27 | 13.2 | **OK** (`abacus_1g`) |
+| E | 3.9.0.27 | 12.9 | **OK** (`abacus_1g`) |
+
+Row B is the negative control proving `lts-cuda13-fix.patch` necessity: the
+patch's `set_if_higher(CMAKE_CXX_STANDARD 17)` for `CUDAToolkit >= 13` (plus
+arch≥75 list and CUDA-13-removed `cudaDeviceProp` fields / CUFFT enum guards)
+is exactly what vanilla LTS lacks. 3.9.0.27 needs no patch on either toolkit.
+
+### nvhpc 26.5 container landmines (for future reruns)
+
+1. The 13.2 toolkit ships CCCL **only** under `include/cccl/` (no top-level
+   `thrust/`, `cub/`); 12.9 still has top-level dirs. Host-side
+   `#include <thrust/...>` under 13.2 needs `-I<cuda>/include/cccl`.
+   Open question for the big PR: whether NVIDIA *runfile* CUDA 13 toolkits
+   share this layout (nvhpc's usually mirror upstream) — if yes, upstream
+   abacus@3.10+cuda+CUDA13 needs the include path added by the build system.
+2. The image's `CPATH` contains the **unversioned** `26.5/math_libs/include`
+   (= CUDA 13 headers); compiling against CUDA 12.9 then fails on
+   `cudaEmulation*` APIs missing from the 12.9 runtime headers. Use the
+   versioned `26.5/math_libs/<ver>/include` instead. Same for `lib64` —
+   image `LIBRARY_PATH` only has gdrcopy, so `-lcublas/-lcufft` resolution
+   needs `26.5/math_libs/<ver>/lib64` on `LIBRARY_PATH`.
+3. `VAR=... cmake <configure>` does not propagate to `cmake --build` children
+   — `export` the env fixes, or the build phase silently reverts to the
+   image defaults (this cost one full round to diagnose).
+4. spack `env.unset("CPATH")` in clean build contexts means spack builds are
+   immune to landmine 2, but also can't be fixed via CPATH for landmine 1.
+5. nvhpc splits math libs out of the per-version CUDA toolkits, so the
+   toolkit prefix has no cublas/cufft. spack externals consuming cublas
+   (elpa+cuda configure: "Could not link cublas") need a **merged prefix**:
+   `/opt/cuda-ext/12.9` with `cp -rs` symlink trees of
+   `2026/cuda/12.9/{bin,include,lib64}` + `26.5/math_libs/12.9/{include,lib64}`
+   + symlinks for every other top-level toolkit dir (nvvm, compat, extras…).
+   The extra dirs matter because **nvcc resolves its components relative to
+   argv[0]**, not /proc/self/exe — a bin/nvcc symlink alone dies with
+   `bin/../nvvm/bin/cicc: not found` (exit 127).
+
+### spack pipeline (env `/work/env-abacus`) — SUCCESS 2026-09-10
+
+`spack.yaml`: spec `abacus@3.10.1 +cuda cuda_arch=80 ^cuda@12.9`,
+`unify: false` (loose, per s8ga decision: let spack resolve/build all deps),
+externals only `{gcc@13.3, nvhpc@26.5, cuda@12.9, cuda@13.2}`. Full stack
+built from source by spack (openmpi 5.0.10, openblas 0.3.34,
+elpa 2026.02.002 +cuda, fftw 3.3.11, libxc 7.1.2, netlib-scalapack,
+cereal…; 48-package DAG). Result: `spack install` rc=0, installed
+`abacus@3.10.1+cuda cuda_arch=80`; `bin/abacus --version` →
+`ABACUS version v3.10.1`; ldd resolves libcudart/libcublas/libcufft .so.12
+from the merged external prefix; `cuobjdump --list-elf` shows **40× sm_80
+fatbins, no other arch** (cuda_arch propagation through the recipe is exact).
+elpa keeps its own default arch (sm_60) — the recipe deliberately leaves
+`elpa cuda_arch=none`; production envs pin it explicitly.
+
+Two container-only fixes were needed (both environmental, not recipe):
+(a) the merged CUDA external prefix (landmine 5) — including a
+**targets/x86_64-linux overlay**: CMake FindCUDAToolkit prefers
+`targets/.../include`, which in a plain merge still lacks cublas headers, so
+`cp -rs` the math_libs headers+libs into `$MP/targets/x86_64-linux/{include,lib}`
+too; (b) first-run checksum failures (libxml2/perl/util-linux-uuid) through
+the proxy were **transient** — loose-mode retry rebuilt them from source
+fine. (Hand-added `/usr` externals for libxml2/perl were tried first and
+**reverted**: the `/usr/include/libxml2` subdir layout is invisible to spack
+consumers and broke hwloc/gettext configure.)
+
+
 
 - **abacus "full recipe" PR — IN PREPARATION (2026-09-10)**, decisions
   locked with s8ga: add ALL supported formal versions (3.9.0.10–.27,
