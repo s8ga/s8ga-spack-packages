@@ -149,13 +149,11 @@ class Elpa(AutotoolsPackage, CudaPackage, ROCmPackage):
     # force_all_x86_kernel patches configure.ac/Makefile.am. Release tarballs
     # from @2025.06: were produced with automake 1.18.x; if make regenerates
     # aclocal.m4 it hard-requires aclocal-1.18 (Debian trixie only ships 1.17).
-    # automake installs API-versioned binaries, so the range is CLOSED at the
-    # 1.18 series: an open "@1.18:" re-resolved to 1.19 after a builtin bump
-    # and aclocal-1.18 vanished again (2026-10-09 master-track failure).
-    # Also touch generated files after patching (see skip_autotools_regeneration)
-    # so we prefer the already-force-patched configure/Makefile.in over autoreconf.
+    # Pull a matching toolchain for those versions, and also touch generated
+    # files after patching (see skip_autotools_regeneration) so we prefer the
+    # already-force-patched configure/Makefile.in over autoreconf.
     depends_on("autoconf@2.71:", type="build", when="+force_all_x86_kernel @2025.06.001:")
-    depends_on("automake@1.18:1.18.99", type="build", when="+force_all_x86_kernel @2025.06.001:")
+    depends_on("automake@1.18:", type="build", when="+force_all_x86_kernel @2025.06.001:")
 
     depends_on("blas")
     depends_on("lapack")
