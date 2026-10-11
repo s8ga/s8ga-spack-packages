@@ -102,6 +102,14 @@ class Elpa(AutotoolsPackage, CudaPackage, ROCmPackage):
     patch("hipcc.patch", when="+rocm @2025.01.001:2025.06.001")
     # Suppress debug output to stderr for non-debug builds
     patch("elpa-2026.02.001-wantDebug.patch", when="@2026.02.001:")
+    # Width-1 tail block fixes from ELPA branch bugfix_elpa2_65_65_64 (cp2k#4484):
+    # heap corruption with 1 MPI rank when na == 1 mod bandwidth. Ported from the
+    # cp2k toolchain backport; drop when a fixed ELPA release ships.
+    patch(
+        "elpa-2026.02.002-nx1-tail-block.patch",
+        sha256="7eda4cdc2a0bbffe2b0cf62824b1ae08d4158deb8ba61920e5a77bfdf0eb7452",
+        when="@2026.02.002",
+    )
 
     # Force AVX512 kernels on non-AVX512 hosts for mixed-ISA cluster deployment.
     # Supported only on elpa@2025: (verified dry-run matrix: 2025.01.001/002,
