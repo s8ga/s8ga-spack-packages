@@ -37,12 +37,13 @@ and Makefile.am). Both patches are needed for full coverage.
    if test x"$can_compile_avx512" = x"yes"; then
      { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether we compile for Xeon" >&5
  printf %s "checking whether we compile for Xeon... " >&6; }
-@@ -21110,7 +21121,7 @@
+@@ -21110,7 +21121,8 @@
  printf "%s\n" "#define HAVE_AVX512_XEON_PHI 1" >>confdefs.h
- 
+
        else
 -        as_fn_error $? "Oho! We can neither compile AVX512 intrinsics for Xeon nor Xeon Phi. This should not happen!" "$LINENO" 5
 +        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: Cannot compile AVX512 intrinsics for Xeon nor Xeon Phi. Defaulting to Xeon." >&2; }; can_compile_avx512_xeon=yes
++printf "%s\n" "#define HAVE_AVX512_XEON 1" >>confdefs.h
        fi
      fi
    fi

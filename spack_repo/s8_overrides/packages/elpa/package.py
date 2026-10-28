@@ -122,18 +122,22 @@ class Elpa(AutotoolsPackage, CudaPackage, ROCmPackage):
     )
     patch(
         "force_all_x86_kernel.patch",
-        sha256="380717a6f133a2f6ad6b3c537cdd6f77d01338fb30ba39c072144f877e812b86",
+        sha256="81a1fed4077e1c646b13b745344166c3608c99ee9833b3cdc0a4bd1cd42efaa0",
         when="+force_all_x86_kernel @2025:",
     )
     # configure: printf "%s\n" style through 2026.02.001; single-quote style from 2026.02.002
+    # Both configure patches now also append "#define HAVE_AVX512_XEON 1" to
+    # confdefs.h in the forced fallback branch: without it the 2hv tau sign
+    # flip in the BLOCK templates is silently preprocessed out (numerically
+    # wrong eigenvectors; the template #error guard catches it at build time).
     patch(
         "force_avx512_configure.patch",
-        sha256="6b33df43a1a274636436cc413be255da7c07d62479179539f201586aaaaac1ca",
+        sha256="7925798f93a56859edd01578e48f8e834c3f2b2cb523e970469e293266591f45",
         when="+force_all_x86_kernel @2025:2026.02.001",
     )
     patch(
         "force_avx512_configure-2026.02.002.patch",
-        sha256="e6cb6d39052f6b78aa038f6d1abda4a090c2a2cfe2ba170307f293f59331ced4",
+        sha256="4941589ecc4e5eba057e2c96c063146f8eedde5259c0e6b8ae9a247b52903df4",
         when="+force_all_x86_kernel @2026.02.002:",
     )
     # Makefile.in: am__objects_N indices change at 2025.06 (not at 2026.02)

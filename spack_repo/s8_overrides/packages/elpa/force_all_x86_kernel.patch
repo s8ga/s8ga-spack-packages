@@ -5,6 +5,15 @@ This patch enables building AVX512 kernels on AVX2 (or lower) hosts by:
   1. Relaxing configure AVX512 compile tests from hard errors to warnings
   2. Defining AVX512_CFLAGS with compiler-specific flags (GCC/Clang/Intel)
   3. Applying per-object CFLAGS to AVX512 kernel .lo targets only
+  4. Defining HAVE_AVX512_XEON (HAVE_AVX512) in the forced fallback branches
+  5. Guarding the BLOCK templates with #error when an AVX-512 translation
+     unit is compiled without HAVE_AVX512_XEON/HAVE_AVX512_XEON_PHI
+
+The macros in (4) are load-bearing: the 2hv tau sign flip in
+src/elpa2/kernels/*_128bit_256bit_512bit_BLOCK_template.c is gated on
+them and is silently dropped by the preprocessor when they are missing,
+producing numerically wrong eigenvectors (observed as FIXED_ATOMS drift
+in CP2K). Without the guard in (5) that failure mode was silent.
 
 Main library code remains compiled with host-default flags (e.g. AVX2),
 while AVX512 kernels get extra -mavx512f flags. ELPA's runtime autotune
@@ -47,13 +56,14 @@ NOTE: Generated from ELPA 2021.05.002 source. GNU patch will auto-locate
    if test x"$can_compile_avx512" = x"yes"; then
      AC_MSG_CHECKING([whether we compile for Xeon])
      AC_COMPILE_IFELSE([AC_LANG_SOURCE([
-@@ -1583,7 +1601,8 @@
+@@ -1583,7 +1601,9 @@
        if test x"$can_compile_avx512_xeon_phi" = x"yes"; then
          AC_DEFINE([HAVE_AVX512_XEON_PHI],[1],[AVX512 for Xeon-PHI is supported on this CPU])
        else
 -        AC_MSG_ERROR([Oho! We can neither compile AVX512 intrinsics for Xeon nor Xeon Phi. This should not happen!])
 +        AC_MSG_WARN([Cannot compile AVX512 intrinsics for Xeon nor Xeon Phi. Defaulting to Xeon.])
 +        can_compile_avx512_xeon=yes
++        AC_DEFINE([HAVE_AVX512_XEON],[1],[AVX512 for Xeon is forced by force_all_x86_kernel build])
        fi
      fi
    fi
@@ -134,3 +144,31 @@ NOTE: Generated from ELPA 2021.05.002 source. GNU patch will auto-locate
  if WITH_COMPLEX_SVE128_BLOCK2_KERNEL
    libelpa@SUFFIX@_private_la_SOURCES += src/elpa2/kernels/complex_sve128_2hv_double_precision.c
  if WANT_SINGLE_PRECISION_COMPLEX
+--- a/src/elpa2/kernels/real_128bit_256bit_512bit_BLOCK_template.c
++++ b/src/elpa2/kernels/real_128bit_256bit_512bit_BLOCK_template.c
+@@ -79,6 +79,11 @@
+ #define SVE_256 2563
+ #define AVX_512 512
+ #define SVE_512 5121
++#if VEC_SET == AVX_512
++#if !defined(HAVE_AVX512_XEON) && !defined(HAVE_AVX512_XEON_PHI)
++#error "AVX-512 BLOCK template compiled without HAVE_AVX512_XEON(_PHI): the 2hv tau sign flip would be silently dropped (check the force_all_x86_kernel configure patches)"
++#endif
++#endif
+ 
+ 
+ #if VEC_SET == SSE_128 || VEC_SET == AVX_256 || VEC_SET == AVX2_256 || VEC_SET == AVX_512
+--- a/src/elpa2/kernels/complex_128bit_256bit_512bit_BLOCK_template.c
++++ b/src/elpa2/kernels/complex_128bit_256bit_512bit_BLOCK_template.c
+@@ -74,6 +74,11 @@
+ #define AVX_512 512
+ #define SVE_512 5121
+ #define NEON_ARCH64_128 1285
++#if VEC_SET == AVX_512
++#if !defined(HAVE_AVX512_XEON) && !defined(HAVE_AVX512_XEON_PHI)
++#error "AVX-512 BLOCK template compiled without HAVE_AVX512_XEON(_PHI): the 2hv tau sign flip would be silently dropped (check the force_all_x86_kernel configure patches)"
++#endif
++#endif
+ 
+ #if VEC_SET == SSE_128 || VEC_SET == AVX_256 || VEC_SET == AVX2_256 || VEC_SET == AVX_512
+ #include <x86intrin.h>
