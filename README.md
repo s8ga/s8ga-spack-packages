@@ -4,7 +4,10 @@ Custom [Spack](https://spack.io) package repositories for:
 
 1. **ABACUS** (Atomic-orbital Based Ab-initio Computation at UStc) and related
    header/libs packages
-2. **`force_avx512` math-library overrides** for HPC mixed-ISA cluster deployment
+2. **VASP** (`@6.6.0:` CMake + CPU workflow via
+   [s8ga/vasp-cmake](https://github.com/s8ga/vasp-cmake), including VASPml +
+   GRACE, plus `@:6.5.1` Makefile support)
+3. **`force_avx512` math-library overrides** for HPC mixed-ISA cluster deployment
 
 Repos use the spack **v2.5** layout (`spack_repo/<namespace>/`).
 
@@ -19,6 +22,12 @@ spack_repo/
       libcomm/             # Header-only
       libnpy/              # Header-only
       nep_cpu/             # NEP v1.4 (dir=underscore → package name nep-cpu)
+  vasp/                    # namespace: vasp (api: v2.5)
+    packages/
+      vasp/                # @6.6.0: CMake (s8ga/vasp-cmake) + @:6.5.1 Makefile
+      libmbd/              # Static ~mpi libMBD for VASP
+      cppflow/             # Header-only ACEworksGmbH fork for VASPml +grace
+      libtensorflow_cc/    # Prebuilt TensorFlow 2.x CPU C/C++ libs + headers for +grace
   s8_overrides/            # namespace: s8_overrides (api: v2.5)
     packages/
       openblas/            # +force_avx512
@@ -52,9 +61,10 @@ git clone https://github.com/s8ga/s8ga-spack-packages.git
 # Priority: first added = highest
 spack -e <env> repo add /path/to/s8ga-spack-packages/spack_repo/s8_overrides
 spack -e <env> repo add /path/to/s8ga-spack-packages/spack_repo/abacus
+spack -e <env> repo add /path/to/s8ga-spack-packages/spack_repo/vasp
 
 spack -e <env> repo list
-# Expected: abacus > s8_overrides > builtin
+# Expected: vasp / abacus > s8_overrides > builtin
 ```
 
 Do **not** register the empty `s8_custom_repo` unless you intentionally add

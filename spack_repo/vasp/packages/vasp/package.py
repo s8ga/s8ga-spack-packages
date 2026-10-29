@@ -63,7 +63,7 @@ class Vasp(MakefilePackage, CMakePackage, CudaPackage):
     variant("libxc", default=False, description="Enable Libxc support")
     variant("wannier90", default=False, description="Enable wannier90 support")
 
-    variant("vtst", default=False, description="Enable VTST modified code")
+    variant("vtst", default=False, when="@6.6.0:", description="Enable VTST modified code")
     resource(
         name="vtst_src",
         url="https://github.com/henkelmangroup/vtstcode/archive/2596bccc6ef684965cd528841ea617334fa50e13.tar.gz",
@@ -72,14 +72,32 @@ class Vasp(MakefilePackage, CMakePackage, CudaPackage):
         when="+vtst",
     )
 
-    variant("vaspsol", default=False, description="Enable VASPsol solvation model")
+    variant("vaspsol", default=False, when="@6.6.0:", description="Enable VASPsol solvation model")
 
     variant("dftd4", default=False, description="Enable DFT-D4 van der Waals correction")
     variant("sdftd3", default=False, description="Enable simple-DFT-D3 van der Waals correction")
 
     variant("elpa", default=False, description="Enable ELPA eigenvalue solver")
 
-    variant("libmbd", default=False, description="Enable libMBD many-body dispersion")
+    variant(
+        "libmbd",
+        default=False,
+        when="@6.6.0: build_system=cmake",
+        description="Enable libMBD many-body dispersion",
+    )
+
+    variant(
+        "vaspml",
+        default=False,
+        when="@6.6.0: build_system=cmake",
+        description="Enable VASPml machine learning library",
+    )
+    variant(
+        "grace",
+        default=False,
+        when="+vaspml",
+        description="Enable VASPml GRACE machine-learned force fields (TensorFlow + cppflow)",
+    )
 
     # ------------------------------------------------------------------
     # vasp-cmake resource (for build_system=cmake)
@@ -105,14 +123,22 @@ class Vasp(MakefilePackage, CMakePackage, CudaPackage):
     depends_on("cxx", type="build")
     depends_on("fortran", type="build")
 
-    depends_on("rsync", type="build")
+    depends_on("rsync", type="build", when="build_system=makefile")
     depends_on("blas")
     depends_on("lapack")
     depends_on("fftw-api")
     depends_on("fftw+openmp", when="+openmp ^[virtuals=fftw-api] fftw")
     depends_on("amdfftw+openmp", when="+openmp ^[virtuals=fftw-api] amdfftw")
     depends_on("amdblis threads=openmp", when="+openmp ^[virtuals=blas] amdblis")
-    depends_on("openblas threads=openmp", when="+openmp ^[virtuals=blas] openblas")
+    depends_on("openblas threads=openmp", when="+openmp ^[virtuals=blas,lapack] openblas")
+    depends_on(
+        "intel-oneapi-mkl threads=openmp",
+        when="+openmp ^[virtuals=blas,lapack,scalapack,fftw-api] intel-oneapi-mkl",
+    )
+    depends_on(
+        "intel-oneapi-mkl+gfortran",
+        when="%gcc ^[virtuals=blas] intel-oneapi-mkl",
+    )
     depends_on("mpi", type=("build", "link", "run"))
     # fortran oddness requires the below
     depends_on("openmpi%aocc", when="%aocc ^[virtuals=mpi] openmpi")
@@ -122,7 +148,9 @@ class Vasp(MakefilePackage, CMakePackage, CudaPackage):
     depends_on("hdf5+fortran+mpi", when="+hdf5")
     depends_on("libbeef", when="+libbeef")
     depends_on("libxc~fhc+fortran", when="+libxc")
-    depends_on("wannier90", when="+wannier90")
+    # VASP uses the serial Wannier90 v2/v3 Fortran library API (not v4's new API),
+    # and wannier90@:3 only creates <prefix>/modules properly when +shared.
+    depends_on("wannier90@:3~mpi+shared", when="+wannier90")
 
     # DFTD4 / SDFTD3: cmake build needs cmake-config installed
     depends_on("dftd4", when="+dftd4")
@@ -131,17 +159,26 @@ class Vasp(MakefilePackage, CMakePackage, CudaPackage):
         depends_on("dftd4 build_system=cmake", when="+dftd4")
         depends_on("simple-dftd3 build_system=cmake", when="+sdftd3")
 
-    # ELPA
-    depends_on("elpa+openmp", when="+elpa+openmp")
-    depends_on("elpa~openmp", when="+elpa~openmp")
+    # ELPA (VASP requires >= 2021.05.001 API; keep ~cuda on CPU builds)
+    depends_on("elpa@2021.05.001:+openmp~cuda", when="+elpa+openmp~cuda")
+    depends_on("elpa@2021.05.001:~openmp~cuda", when="+elpa~openmp~cuda")
+    depends_on("elpa@2021.05.001:+openmp+cuda", when="+elpa+openmp+cuda")
+    depends_on("elpa@2021.05.001:~openmp+cuda", when="+elpa~openmp+cuda")
 
-    # libMBD: require static + no MPI (VASP NEB correctness)
-    depends_on("libmbd~mpi+static build_system=cmake", when="+libmbd")
+    # libMBD: require static (~shared+static) + no MPI (VASP NEB correctness)
+    depends_on("libmbd~shared+static~mpi build_system=cmake", when="+libmbd")
     conflicts(
         "^libmbd+mpi",
         when="+libmbd",
         msg="VASP requires libMBD without ScaLAPACK/MPI for correct NEB results",
     )
+
+    # VASPml GRACE: cppflow headers + TensorFlow 2.x C/C++ libraries.
+    # CPU builds use libtensorflow-cc (prebuilt manylinux C/C++ libs + headers,
+    # avoiding Bazel/OpenJDK/LLVM/Python runtime deps from py-tensorflow).
+    depends_on("cppflow", when="+grace")
+    depends_on("libtensorflow-cc", when="+grace~cuda")
+    depends_on("py-tensorflow@2:", when="+grace+cuda")
 
     # cmake build needs pkg-config and cmake itself
     depends_on("pkgconfig", type="build", when="build_system=cmake")
@@ -157,6 +194,7 @@ class Vasp(MakefilePackage, CMakePackage, CudaPackage):
         "%gcc@:8", msg="GFortran before 9.x does not support all features needed to build VASP"
     )
     requires("%nvhpc", when="+cuda", msg="vasp requires nvhpc to build the openacc build")
+    conflicts("+libxc", when="+cuda", msg="LibXC is incompatible with the VASP OpenACC GPU port")
     # intel mkl/mpi conflicts with ilp64, which is a default behaviour
     requires("^intel-oneapi-mkl~ilp64", when="^intel-oneapi-mkl")
     requires("^intel-oneapi-mpi~ilp64", when="^intel-oneapi-mpi")
@@ -164,6 +202,12 @@ class Vasp(MakefilePackage, CMakePackage, CudaPackage):
     conflicts("^[virtuals=mpi] nvhpc", when="%gcc", msg="nvhpc mpi requires nvhpc compiler")
     conflicts("^[virtuals=mpi] nvhpc", when="%aocc", msg="nvhpc mpi requires nvhpc compiler")
     conflicts("cuda_arch=none", when="+cuda", msg="CUDA arch required when building openacc port")
+
+    sanity_check_is_file = [
+        join_path("bin", "vasp_std"),
+        join_path("bin", "vasp_gam"),
+        join_path("bin", "vasp_ncl"),
+    ]
 
     # ------------------------------------------------------------------
     # Shared patch logic (runs for both build systems)
@@ -185,16 +229,36 @@ class Vasp(MakefilePackage, CMakePackage, CudaPackage):
                     shutil.rmtree(pyamff_dst)
                 shutil.copytree(pyamff_src, pyamff_dst)
 
-            m_file = join_path(v_src, "makefile")
-            filter_file(r"LIB\s*=\s*lib\s+parser", "LIB = lib parser pyamff_fortran", m_file)
-            filter_file(
-                r"dependencies:\s*sources", "dependencies: sources libs", m_file
-            )
+            if self.spec.satisfies("build_system=makefile"):
+                m_file = join_path(v_src, "makefile")
+                filter_file(r"LIB\s*=\s*lib\s+parser", "LIB = lib parser pyamff_fortran", m_file)
+                filter_file(
+                    r"dependencies:\s*sources", "dependencies: sources libs", m_file
+                )
 
-            objs_list = (
-                "bfgs.o dynmat.o instanton.o lbfgs.o sd.o cg.o dimer.o bbm.o fire.o "
-                "lanczos.o neb.o qm.o pyamff_fortran/*.o ml_pyamff.o opt.o".split()
-            )
+            # In CMake builds, vasp-cmake compiles and links pyamff_fortran as
+            # its own static library target (CMakeLists_pyamff_fortran.txt),
+            # whereas sources_and_flags_options.cmake parses src/.objects with
+            # CMake regex "[a-zA-Z_0-9-]+\.o" (unescaped `.` = any char), turning
+            # "pyamff_fortran/*.o" into a phantom "pyamff_fo.F"! Only inject
+            # "pyamff_fortran/*.o" for Makefile builds.
+            objs_list = [
+                "bfgs.o",
+                "dynmat.o",
+                "instanton.o",
+                "lbfgs.o",
+                "sd.o",
+                "cg.o",
+                "dimer.o",
+                "bbm.o",
+                "fire.o",
+                "lanczos.o",
+                "neb.o",
+                "qm.o",
+            ]
+            if self.spec.satisfies("build_system=makefile"):
+                objs_list.append("pyamff_fortran/*.o")
+            objs_list.extend(["ml_pyamff.o", "opt.o"])
             objs = "".join(f"\t{x} \\\n" for x in objs_list)
             filter_file(
                 r"^(\s*)(chain\.o)",
@@ -252,27 +316,46 @@ class Vasp(MakefilePackage, CMakePackage, CudaPackage):
     # ------------------------------------------------------------------
     # Environment
     # ------------------------------------------------------------------
+    # vasp-cmake ships custom Find*.cmake modules that don't always search
+    # CMAKE_PREFIX_PATH (e.g. FindFFTW.cmake reads $ENV{FFTW_ROOT} directly).
+    # Keep a single map shared by setup_build_environment and CMakeBuilder.
+    _CMAKE_ROOT_MAP = {
+        "scalapack": "SCALAPACK_ROOT",
+        "fftw-api": "FFTW_ROOT",
+        "libxc": "LibXC_ROOT",
+        "wannier90": "WANNIER90_ROOT",
+        "hdf5": "HDF5_ROOT",
+        "dftd4": "DFTD4_ROOT",
+        "simple-dftd3": "SDFTD3_ROOT",
+        "libbeef": "LIBBEEF_ROOT",
+        "elpa": "ELPA_ROOT",
+        "libmbd": "LIBMBD_ROOT",
+        "blas": "BLAS_ROOT",
+        "cppflow": "CPPFLOW_ROOT",
+        "libtensorflow-cc": "TENSORFLOW_ROOT",
+        "py-tensorflow": "TENSORFLOW_ROOT",
+    }
+
+    @staticmethod
+    def _dep_root(spec, dep):
+        dep_spec = spec[dep]
+        if dep_spec.name == "intel-oneapi-mkl":
+            return dep_spec.package.component_prefix
+        return dep_spec.prefix
+
     def setup_build_environment(self, env):
         if self.spec.satisfies("+cuda %nvhpc"):
             env.set("NVHPC_CUDA_HOME", self.spec["cuda"].prefix)
 
-        # vasp-cmake ships custom Find*.cmake modules that don't always search
-        # CMAKE_PREFIX_PATH.  Map each spack dependency to the *_ROOT env var
-        # the corresponding find module expects.
-        _ROOT_MAP = {
-            "scalapack": "SCALAPACK_ROOT",
-            "fftw-api": "FFTW_ROOT",
-            "libxc": "LibXC_ROOT",
-            "wannier90": "WANNIER90_ROOT",
-            "hdf5": "HDF5_ROOT",
-            "dftd4": "DFTD4_ROOT",
-            "libbeef": "LIBBEEF_ROOT",
-            "elpa": "ELPA_ROOT",
-            "libmbd": "LIBMBD_ROOT",
-        }
-        for dep, var in _ROOT_MAP.items():
-            if dep in self.spec:
-                env.set(var, self.spec[dep].prefix)
+        if self.spec.satisfies("build_system=cmake"):
+            for dep, var in self._CMAKE_ROOT_MAP.items():
+                if dep in self.spec:
+                    env.set(var, self._dep_root(self.spec, dep))
+            if "intel-oneapi-mkl" in self.spec:
+                env.set(
+                    "MKLROOT",
+                    self.spec["intel-oneapi-mkl"].package.component_prefix,
+                )
 
 
 # ==========================================================================
@@ -636,26 +719,35 @@ class CMakeBuilder(cmake.CMakeBuilder):
             self.define_from_variant("VASP_VASPSOL", "vaspsol"),
             self.define_from_variant("VASP_VTST", "vtst"),
             self.define_from_variant("VASP_LIBMBD", "libmbd"),
+            self.define_from_variant("VASP_VASPML", "vaspml"),
+            self.define_from_variant("VASP_VASPML_GRACE", "grace"),
             self.define("VASP_SCALAPACK", True),
             self.define("VASP_TESTSUITE", False),
+            # Prevent implicit host NVPL math auto-detection (keep BLAS/LAPACK
+            # strictly bound to Spack's resolved providers). Must be STRING.
+            self.define("VASP_USE_NVPL", "OFF"),
+            # Shmem variants (all three macros enabled together when +shmem)
+            self.define_from_variant("VASP_SHMEM", "shmem"),
+            self.define_from_variant("VASP_SHMEM_BCAST", "shmem"),
+            self.define_from_variant("VASP_SHMEM_RPROJ", "shmem"),
+            # Lock BLAS and LAPACK to Spack's exact resolved library lists
+            self.define("BLAS_LIBRARIES", spec["blas"].libs.joined(";")),
+            self.define("LAPACK_LIBRARIES", spec["lapack"].libs.joined(";")),
         ]
 
-        # Shmem variants
-        if spec.satisfies("+shmem"):
-            args.append(self.define("VASP_SHMEM", True))
-            args.append(self.define("VASP_SHMEM_BCAST", True))
-            args.append(self.define("VASP_SHMEM_RPROJ", True))
-
-        # CUDA (NVHPC OpenACC)
+        # CUDA (NVHPC OpenACC): VASP_CUDA is a CACHE STRING (AUTO|ON|OFF);
+        # CMakeLists_root.txt unsets BOOL entries back to AUTO, so pass str!
         if spec.satisfies("+cuda"):
             if spec.satisfies("cuda_arch=none"):
                 raise InstallError(
                     "CUDA arch required for VASP OpenACC build. "
                     "Set cuda_arch=<values>."
                 )
-            args.append(self.define("VASP_CUDA", True))
+            args.append(self.define("VASP_CUDA", "ON"))
             archs = ";".join(spec.variants["cuda_arch"].value)
             args.append(self.define("CMAKE_CUDA_ARCHITECTURES", archs))
+        else:
+            args.append(self.define("VASP_CUDA", "OFF"))
 
         # DFTD4 API version: spack knows the exact version
         if spec.satisfies("+dftd4"):
@@ -664,53 +756,41 @@ class CMakeBuilder(cmake.CMakeBuilder):
             else:
                 args.append(self.define("VASP_DFTD4_API", "V4"))
 
-        # Force VASP_TARGET_CPU to match spack's resolved target, preventing
-        # vasp-cmake from appending -march=native (or -tp=host for NVHPC) via
-        # target_compile_options — that flag comes AFTER spack's wrapper-injected
-        # -march and wins, breaking target portability (e.g. force_avx512 on
-        # mixed-ISA clusters where build host != run host).
-        try:
-            opt_flags = spec.target.optimization_flags(
-                spec.compiler.name, str(spec.compiler.version)
-            )
-        except Exception:
-            opt_flags = None
-        if opt_flags:
-            m = re.search(r"-march=(\S+)", opt_flags)
-            if m:
-                args.append(self.define("VASP_TARGET_CPU", m.group(1)))
-            elif spec.satisfies("%nvhpc"):
-                # NVHPC uses -tp <name> instead of -march=<name>
-                m = re.search(r"-tp\s+(\S+)", opt_flags)
+        # Force VASP_TARGET_CPU to match Spack's resolved microarchitecture
+        # (using Spack 1.x's microarchitecture_flags across Fortran/CXX/C, the
+        # exact helper compiler-wrapper uses for SPACK_TARGET_ARGS_*). Without
+        # VASP_TARGET_CPU, vasp-cmake's else-branches append -march=native (or
+        # -tp=host) to both Fortran and C++ (fftlib/parser) targets AFTER
+        # Spack's wrapper flags, breaking mixed-ISA / force_avx512 portability.
+        target_cpu = None
+        for lang in ("fortran", "cxx", "c"):
+            if not spec.has_virtual_dependency(lang):
+                continue
+            opt_flags = microarchitecture_flags(spec, lang)
+            if opt_flags:
+                m = re.search(
+                    r"(?:-march=|-mcpu=|-tp(?:=|\s+)|-h\s+cpu=)(\S+)", opt_flags
+                )
                 if m:
-                    args.append(self.define("VASP_TARGET_CPU", m.group(1)))
+                    target_cpu = m.group(1)
+                    break
+        if not target_cpu and spec.satisfies("%nvhpc") and spec.target.family == "x86_64":
+            # archspec leaves nvhpc empty on generic x86_64_v2; "px" prevents -tp=host
+            target_cpu = "px"
+        if target_cpu:
+            args.append(self.define("VASP_TARGET_CPU", target_cpu))
 
-        # Custom find modules in vasp-cmake don't search CMAKE_PREFIX_PATH;
-        # pass explicit ROOT for each spack-managed dependency.
-        _ROOT_MAP = {
-            "scalapack": "SCALAPACK_ROOT",
-            "fftw-api": "FFTW_ROOT",
-            "libxc": "LibXC_ROOT",
-            "wannier90": "WANNIER90_ROOT",
-            "hdf5": "HDF5_ROOT",
-            "dftd4": "DFTD4_ROOT",
-            "libbeef": "LIBBEEF_ROOT",
-            "elpa": "ELPA_ROOT",
-            "libmbd": "LIBMBD_ROOT",
-        }
-        for dep, var in _ROOT_MAP.items():
+        # Custom find modules in vasp-cmake don't always search
+        # CMAKE_PREFIX_PATH; pass explicit ROOT for each spack-managed dep.
+        for dep, var in Vasp._CMAKE_ROOT_MAP.items():
             if dep in spec:
-                args.append(self.define(var, spec[dep].prefix))
+                args.append(self.define(var, Vasp._dep_root(spec, dep)))
+        if "intel-oneapi-mkl" in spec:
+            args.append(
+                self.define(
+                    "MKLROOT",
+                    spec["intel-oneapi-mkl"].package.component_prefix,
+                )
+            )
 
         return args
-
-    @property
-    def build_targets(self):
-        return ["all"]
-
-    def install(self, pkg, spec, prefix):
-        mkdirp(prefix.bin)
-        for exe in ("vasp_std", "vasp_gam", "vasp_ncl"):
-            src = join_path(self.build_directory, "bin", exe)
-            if os.path.exists(src):
-                install(src, join_path(prefix.bin, exe))

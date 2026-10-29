@@ -11,6 +11,12 @@ spack_repo/
       libcomm/             # Header-only
       libnpy/              # Header-only
       nep_cpu/             # NEP v1.4 (dir=underscore, name=hyphen)
+  vasp/                    # namespace: vasp, api: v2.5
+    packages/
+      vasp/                # @6.6.0: CMake (s8ga/vasp-cmake) + @:6.5.1 Makefile
+      libmbd/              # Static ~mpi libMBD for VASP
+      cppflow/             # Header-only ACEworksGmbH fork for VASPml +grace
+      libtensorflow_cc/    # Prebuilt TensorFlow 2.x CPU C/C++ libs + headers for +grace
   s8_overrides/            # namespace: s8_overrides, api: v2.5
     packages/
       openblas/            # +force_avx512 variant
@@ -33,10 +39,10 @@ in `~/spack-packages` (worktrees in `~/spack-worktrees/`, PR bodies in
 `~/spack-worktrees/pr-bodies/`); branches pushed to fork `s8ga/spack-packages`.
 **PRs are opened manually by s8ga only — agents must never open PRs.**
 Details, validation log, and post-merge migration steps:
-`docs/upstreaming-abacus-deps.md`. Note: `s8_custom_repo` is NOT an empty
-placeholder (contains libmbd and vasp) and is globally registered —
-`spack create` without `-r` writes into it; see the doc's "environment side
-effects" section.
+`docs/upstreaming-abacus-deps.md`. Note: `vasp` and `libmbd` have been migrated
+out of `s8_custom_repo` into `spack_repo/vasp/` (`s8_custom_repo` is now empty
+`repo.yaml` only; if it is still globally registered in `~/.spack`, always pass
+`-r` to `spack create`).
 
 `s8_overrides` last rebased against
 [spack/spack-packages](https://github.com/spack/spack-packages)
@@ -53,10 +59,11 @@ Use **env-scoped** repos, not global:
 # Register in a spack env (priority: first added = highest)
 spack -e <env> repo add /path/to/spack_repo/s8_overrides
 spack -e <env> repo add /path/to/spack_repo/abacus
+spack -e <env> repo add /path/to/spack_repo/vasp
 
 # Verify
 spack -e <env> repo list
-# Should show: abacus > s8_overrides > builtin
+# Should show: vasp / abacus > s8_overrides > builtin
 ```
 
 **Never use global `spack repo add`** — it affects all envs and causes
@@ -267,7 +274,39 @@ HPC-Container-Factory/spack-envs/
 ```
 
 Each env's `env.yaml` registers repos via `custom_repos`. Prefer pointing at
-`spack_repo/abacus` + `spack_repo/s8_overrides` (not the empty `s8_custom_repo`).
+`spack_repo/abacus` + `spack_repo/vasp` + `spack_repo/s8_overrides` (not the
+empty `s8_custom_repo`).
+
+## VASP Key Design Decisions (`spack_repo/vasp/`)
+
+- **CMake + CPU focus (`@6.6.0:`)**: `@6.6.0:` defaults to `build_system=cmake`
+  via `s8ga/vasp-cmake` (`branch="6.6.x"` resource). `MakefileBuilder` stays
+  frozen for `@:6.5.1` compatibility.
+- **CPU purity & provider locking**:
+  - `VASP_CUDA` and `VASP_USE_NVPL` are `CACHE STRING` (`AUTO|ON|OFF`) in
+    `vasp-cmake` (`CMakeLists_root.txt` unsets `BOOL` entries back to `AUTO`),
+    so `cmake_args` passes string `"OFF"`/`"ON"` explicitly.
+  - `BLAS_LIBRARIES` and `LAPACK_LIBRARIES` are bound explicitly to Spack's
+    resolved providers (`spec["blas"].libs` / `spec["lapack"].libs`).
+  - `intel-oneapi-mkl` `@2024:` uses `v2_layout` (`<prefix>/mkl/latest`);
+    `Vasp._dep_root` resolves `component_prefix` and sets `MKLROOT`.
+- **VASPml & GRACE (`+vaspml`, `+grace`)**:
+  - `+vaspml` (`@6.6.0: build_system=cmake`) builds `libvaspml.a` + standalone
+    VASPml apps via standard `cmake --install`.
+  - `+grace` (`when="+vaspml"`) pulls `cppflow` (`ACEworksGmbH/cppflow`
+    `2.0.4aw`, header-only `Package`) and `libtensorflow-cc` on CPU builds
+    (extracts `libtensorflow_cc.so.2`, `libtensorflow_framework.so.2`, and
+    `include/` from official PyPI `tensorflow-cpu` `manylinux` wheels via
+    stdlib `zipfile`, avoiding Bazel/OpenJDK/LLVM/Python runtime deps; `+cuda`
+    retains `py-tensorflow@2:`).
+- **Dependency constraints**:
+  - `wannier90@:3~mpi+shared`: VASP uses the serial v2/v3 Wannier90 Fortran API
+    (incompatible with `wannier90@4`), and `@:3` requires `+shared` to create
+    `<prefix>/modules` as a directory.
+  - `libmbd~shared+static~mpi build_system=cmake`: static serial libMBD for NEB
+    correctness.
+  - `+shmem` enables all three macros (`VASP_SHMEM`, `VASP_SHMEM_BCAST`,
+    `VASP_SHMEM_RPROJ`).
 
 ## Conventions
 
