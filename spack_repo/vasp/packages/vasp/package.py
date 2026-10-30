@@ -31,6 +31,7 @@ class Vasp(MakefilePackage, CMakePackage, CudaPackage):
     # ------------------------------------------------------------------
     # Versions
     # ------------------------------------------------------------------
+    version("6.6.1", sha256="261f9c1fd730468106191afeb185821d67cb7a58c982f6e063824dd5432106b0")
     version("6.6.0", sha256="9566f59b0ae2fc60f670a91153655d09dba13fe6cc6c54e9ca6bd03bbcd86384")
     version("6.5.1", sha256="a53fd9dd2a66472a4aa30074dbda44634fc663ea2628377fc01d870e37136f61")
     version("6.5.0", sha256="7836f0fd2387a6768be578f1177e795dc625f36f19015e31cab0e81154a24196")
@@ -102,12 +103,21 @@ class Vasp(MakefilePackage, CMakePackage, CudaPackage):
     # ------------------------------------------------------------------
     # vasp-cmake resource (for build_system=cmake)
     # ------------------------------------------------------------------
+    # @6.6.0:6.6.1 are pinned to the verified commit so future vasp-cmake
+    # updates never perturb validated releases or offline mirrors.
+    resource(
+        name="vasp_cmake",
+        git="https://github.com/s8ga/vasp-cmake.git",
+        commit="afcb14873f5d718a77f4aed81485fa336d701022",
+        placement="cmake",
+        when="@6.6.0:6.6.1 build_system=cmake",
+    )
     resource(
         name="vasp_cmake",
         git="https://github.com/s8ga/vasp-cmake.git",
         branch="6.6.x",
         placement="cmake",
-        when="build_system=cmake",
+        when="@6.6.2: build_system=cmake",
     )
 
     # ------------------------------------------------------------------
@@ -343,6 +353,29 @@ class Vasp(MakefilePackage, CMakePackage, CudaPackage):
             return dep_spec.package.component_prefix
         return dep_spec.prefix
 
+    @staticmethod
+    def _avx512_precision_flags(spec):
+        """Return (fflags, cflags, cxxflags) for x86_64_v4+ targets.
+
+        Disables FMA contraction and caps GCC's auto-vectorization width at
+        256-bit (matching GCC's own skylake-avx512/sapphirerapids tuning while
+        keeping EVEX encoding, all 32 vector registers, and opmask instructions
+        active). Prevents 8-lane ZMM reduction-tree reassociation noise in
+        real-space projection (*_RPR) at tight EDIFF thresholds.
+        """
+        if not spec.satisfies("target=x86_64_v4:"):
+            return [], [], []
+        if spec.satisfies("%gcc"):
+            flags = ["-ffp-contract=off", "-mprefer-vector-width=256"]
+            return list(flags), list(flags), list(flags)
+        if spec.satisfies("%aocc"):
+            flags = ["-ffp-contract=off"]
+            return list(flags), list(flags), list(flags)
+        if spec.satisfies("%oneapi"):
+            flags = ["-fp-model=precise"]
+            return list(flags), list(flags), list(flags)
+        return [], [], []
+
     def setup_build_environment(self, env):
         if self.spec.satisfies("+cuda %nvhpc"):
             env.set("NVHPC_CUDA_HOME", self.spec["cuda"].prefix)
@@ -382,6 +415,14 @@ class MakefileBuilder(makefile.MakefileBuilder):
         llibs = list(self.compiler.stdcxx_libs)
         cflags = ["-fPIC", "-DAAD_"]
         fflags = ["-w", "-ffpe-summary=none"]
+
+        avx_fflags, avx_cflags, avx_cxxflags = Vasp._avx512_precision_flags(spec)
+        if avx_fflags:
+            tty.msg(
+                f"x86_64_v4+ target detected. Adding precision flags ({' '.join(avx_fflags)})"
+            )
+            fflags.extend(avx_fflags)
+            cflags.extend(avx_cflags)
 
         fftw_api = spec["fftw-api"]
         incs = [fftw_api.headers.include_flags]
@@ -563,8 +604,9 @@ class MakefileBuilder(makefile.MakefileBuilder):
         filter_file(r"^VASP_TARGET_CPU[ ]{0,}\?=.*", "", make_include)
 
         if spec.satisfies("+fftlib"):
+            cxx_extra = f" {' '.join(avx_cxxflags)}" if avx_cxxflags else ""
             cxxftlib = (
-                f"CXX_FFTLIB = {spack_cxx} {omp_flag}"
+                f"CXX_FFTLIB = {spack_cxx} {omp_flag}{cxx_extra}"
                 f" -DFFTLIB_THREADSAFE {' '.join(list(self.compiler.stdcxx_libs))}"
             )
             filter_file("^#FCL[ ]{0,}=fftlib.o", "FCL += fftlib/fftlib.o", make_include)
@@ -779,6 +821,17 @@ class CMakeBuilder(cmake.CMakeBuilder):
             target_cpu = "px"
         if target_cpu:
             args.append(self.define("VASP_TARGET_CPU", target_cpu))
+
+        avx_fflags, avx_cflags, avx_cxxflags = Vasp._avx512_precision_flags(spec)
+        if avx_fflags:
+            tty.msg(
+                f"x86_64_v4+ target detected. Adding precision flags ({' '.join(avx_fflags)})"
+            )
+            args.append(self.define("CMAKE_Fortran_FLAGS", " ".join(avx_fflags)))
+        if avx_cflags:
+            args.append(self.define("CMAKE_C_FLAGS", " ".join(avx_cflags)))
+        if avx_cxxflags:
+            args.append(self.define("CMAKE_CXX_FLAGS", " ".join(avx_cxxflags)))
 
         # Custom find modules in vasp-cmake don't always search
         # CMAKE_PREFIX_PATH; pass explicit ROOT for each spack-managed dep.

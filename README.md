@@ -24,7 +24,7 @@ spack_repo/
       nep_cpu/             # NEP v1.4 (dir=underscore → package name nep-cpu)
   vasp/                    # namespace: vasp (api: v2.5)
     packages/
-      vasp/                # @6.6.0: CMake (s8ga/vasp-cmake) + @:6.5.1 Makefile
+      vasp/                # @6.6.0: CMake (s8ga/vasp-cmake, incl. 6.6.1) + @:6.5.1 Makefile
       libmbd/              # Static ~mpi libMBD for VASP
       cppflow/             # Header-only ACEworksGmbH fork for VASPml +grace
       libtensorflow_cc/    # Prebuilt TensorFlow 2.x CPU C/C++ libs + headers for +grace

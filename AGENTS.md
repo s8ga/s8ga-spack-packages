@@ -279,9 +279,18 @@ empty `s8_custom_repo`).
 
 ## VASP Key Design Decisions (`spack_repo/vasp/`)
 
-- **CMake + CPU focus (`@6.6.0:`)**: `@6.6.0:` defaults to `build_system=cmake`
-  via `s8ga/vasp-cmake` (`branch="6.6.x"` resource). `MakefileBuilder` stays
-  frozen for `@:6.5.1` compatibility.
+- **CMake + CPU focus (`@6.6.0:`, including `6.6.0` and `6.6.1`)**: `@6.6.0:`
+  defaults to `build_system=cmake` via `s8ga/vasp-cmake` (`@6.6.0:6.6.1` pinned
+  to verified commit `afcb14873f5d718a77f4aed81485fa336d701022`; `@6.6.2:` tracks
+  `branch="6.6.x"`). `MakefileBuilder` stays frozen for `@:6.5.1` compatibility.
+- **AVX-512 (`target=x86_64_v4:`) numerical stability**:
+  - Injects `-ffp-contract=off -mprefer-vector-width=256` (`%gcc`),
+    `-ffp-contract=off` (`%aocc`), or `-fp-model=precise` (`%oneapi`) across
+    Fortran/C/C++ in both `CMakeBuilder` and `MakefileBuilder` to avoid FMA /
+    8-lane ZMM reduction-tree reassociation noise in `*_RPR` at tight `EDIFF`.
+  - In `v4` Spack environments (`spack.yaml`), either keep `libxc` at
+    `target=x86_64_v3` or pass matching `cflags`/`fflags` in `packages.libxc`
+    (Spack's `depends_on` ignores compiler flags).
 - **CPU purity & provider locking**:
   - `VASP_CUDA` and `VASP_USE_NVPL` are `CACHE STRING` (`AUTO|ON|OFF`) in
     `vasp-cmake` (`CMakeLists_root.txt` unsets `BOOL` entries back to `AUTO`),
