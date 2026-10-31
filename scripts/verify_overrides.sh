@@ -132,9 +132,9 @@ verify_fftw() {
 }
 
 # --- ELPA ---
-# Verification: 3 patches apply cleanly via --dry-run
-# ELPA is the most fragile: configure and Makefile.in patches use exact
-# line numbers. Must verify per-version.
+# Verification: force_avx512 patch set + runtime_kernel_autodetect.patch apply
+# cleanly via --dry-run. ELPA is the most fragile: configure and Makefile.in
+# patches use exact line numbers. Must verify per-version.
 verify_elpa() {
     local version="$1"
     echo "-- ELPA@$version --"
@@ -176,6 +176,8 @@ verify_elpa() {
     else
         patches+=("force_avx512_makefile_in.patch")
     fi
+    # +runtime_kernel_autodetect: same @2025: window, single unversioned patch
+    patches+=("runtime_kernel_autodetect.patch")
 
     # Check each selected patch with --dry-run
     for patch_name in "${patches[@]}"; do

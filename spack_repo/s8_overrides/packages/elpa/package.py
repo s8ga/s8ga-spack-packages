@@ -80,6 +80,15 @@ class Elpa(AutotoolsPackage, CudaPackage, ROCmPackage):
         "supported by the build host. Enables runtime autotune selection on "
         "AVX512-capable targets.",
     )
+    variant(
+        "runtime_kernel_autodetect",
+        default=False,
+        description="Pick the 2stage real/complex kernel default at runtime "
+        "(per-instance CPUID probe over the compiled-in kernels) instead of the "
+        "configure-time default. Avoids SIGILL from the forced AVX512 default on "
+        "non-AVX512 hosts; x86 only, no-op elsewhere. Orthogonal to "
+        "+force_all_x86_kernel.",
+    )
 
     with when("@2021.11.001:"):
         variant(
@@ -150,6 +159,25 @@ class Elpa(AutotoolsPackage, CudaPackage, ROCmPackage):
         "force_avx512_makefile_in-2026.patch",
         sha256="8c054c705450838e8dd189a9a96125cc17a37f5950a8b61d7d7b51a629e5f3ab",
         when="+force_all_x86_kernel @2025.06.001:",
+    )
+    # Runtime CPUID autodetect for the 2stage kernel defaults (src/elpa_index.c
+    # only; no build-system files, no autotools interaction). configure bakes
+    # the default kernel to the highest tier it was told exists, which SIGILLs
+    # on lower-ISA hosts of a mixed-ISA cluster. Pure default-value provider:
+    # ELPA_FORCE_* env, explicit set(), and ELPA_DEFAULT_* env all still win.
+    # Same support window as +force_all_x86_kernel; patch applies textually to
+    # the whole @2025: matrix (verified dry-run on 2025.01.001/002, 2025.06.001,
+    # 2026.02.001/002 plus an object-level compile of elpa_index.c on 2025.01.001).
+    conflicts(
+        "+runtime_kernel_autodetect",
+        when="@:2024.05.001",
+        msg="+runtime_kernel_autodetect requires elpa@2025: "
+        "(patch context is not maintained for older releases)",
+    )
+    patch(
+        "runtime_kernel_autodetect.patch",
+        sha256="1fa02e18623c6f26843a950e56e12b1e95933fd552f27fc2547469235acfffed",
+        when="+runtime_kernel_autodetect @2025:",
     )
 
     depends_on("c", type="build")  # generated

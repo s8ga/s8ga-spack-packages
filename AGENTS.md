@@ -84,7 +84,7 @@ with runtime CPUID dispatch for portability. Used in HPC mixed-ISA clusters.
 |---------|---------|---------------------------|------------------|
 | openblas | 1 variant + 1 condition (`NO_AVX512`) | None | `@0.3.30:` (`conflicts` `@:0.3.29`) |
 | fftw | 1 variant + 1 SIMD loop condition | None (also carries builtin `%gcc@14:` warning fix) | `@3.3.10:` (`conflicts` `@:3.3.9`) |
-| elpa | 1 variant + version-gated `patch()` + simd_features restructure | Custom force_* patches + builtin wantDebug | `@2025:` (`conflicts` `@:2024.05.001`) |
+| elpa | 2 variants (`force_all_x86_kernel`, `runtime_kernel_autodetect`) + version-gated `patch()` + simd_features restructure | Custom force_* + runtime_kernel_autodetect patches + builtin wantDebug | `@2025:` (`conflicts` `@:2024.05.001`) |
 
 ### ELPA force patches (version-gated, `@2025:` only)
 
@@ -100,6 +100,31 @@ with runtime CPUID dispatch for portability. Used in HPC mixed-ISA clusters.
 
 Verified dry-run matrix: `2025.01.001`, `2025.01.002`, `2025.06.001`, `2026.02.001`, `2026.02.002`.
 Also synced from builtin: `elpa-2026.02.001-wantDebug.patch` (`@2026.02.001:`).
+
+### ELPA runtime kernel autodetect (`+runtime_kernel_autodetect`, `@2025:`)
+
+Orthogonal to `+force_all_x86_kernel` (force builds the fat library; autodetect
+picks the 2stage kernel default at runtime). One unversioned patch, whole window:
+
+| Patch | `when=` |
+|-------|---------|
+| `runtime_kernel_autodetect.patch` | `+runtime_kernel_autodetect @2025:` |
+
+- configure bakes the 2stage default kernel to the highest forced tier (e.g.
+  `ELPA_2STAGE_REAL_DEFAULT=AVX512_BLOCK2`) → SIGILL on lower-ISA hosts when the
+  app doesn't call `elpa_set("real_kernel", ...)`. The patch probes CPUID at
+  instance creation (`elpa_init`/`elpa_allocate`) over compiled-in ∩ host-supported
+  kernels and seeds the default (writes `values[n]`, never `is_set`).
+- Precedence preserved: `ELPA_FORCE_*` env > explicit `set()` > `ELPA_DEFAULT_*`
+  env > runtime probe > configure default.
+- `src/elpa_index.c` only — no autotools interaction. x86-only (`#if` guarded);
+  non-x86 builds unchanged. GPU fallback paths in `elpa2_template.F90` still use
+  compile-time defaults (open limitation).
+- Verified: dry-run whole `@2025:` matrix + object-level compile of
+  `elpa_index.c` on 2025.01.001; full build + 9-scenario probe matrix
+  (native AVX2 + Intel SDE `-skx`) on 2026.02.002. Env: `elpa-autoselect`
+  (dev-tree handoff: `~/spack/var/spack/environments/elpa-autoselect/README.md`),
+  recipe-side verification env: `elpa-autodetect-verify`.
 
 **Autotools regeneration:** force patches edit `configure.ac`/`Makefile.am`.
 `@2025.06:` tarballs need `aclocal-1.18` if regenerated → recipe depends on
