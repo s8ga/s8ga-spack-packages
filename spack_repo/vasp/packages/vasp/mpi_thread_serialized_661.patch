@@ -1,0 +1,14 @@
+--- a/src/mpi.F	2026-07-18 01:53:22.000000000 +0800
++++ a/src/mpi.F	2026-11-01 16:31:13.593517600 +0800
+@@ -270,8 +270,9 @@
+       CALL MPI_init_thread( MPI_THREAD_MULTIPLE, i, ierror )
+       IF ( i /= MPI_THREAD_MULTIPLE .OR. ierror /= MPI_success ) THEN
+ #else
+-      CALL MPI_init_thread( MPI_THREAD_SINGLE, i, ierror )
+-      IF ( i /= MPI_THREAD_SINGLE .OR. ierror /= MPI_success ) THEN
++      ! Patch VASP to use higher MPI Levels
++      CALL MPI_init_thread( MPI_THREAD_SERIALIZED, i, ierror )
++      IF ( i < MPI_THREAD_SERIALIZED .OR. ierror /= MPI_success ) THEN
+ #endif
+          CALL vtutor%bug('M_init: MPI_init_thread returns: ', __FILE__, __LINE__)
+       ENDIF

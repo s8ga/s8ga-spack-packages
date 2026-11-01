@@ -341,6 +341,23 @@ empty `s8_custom_repo`).
     correctness.
   - `+shmem` enables all three macros (`VASP_SHMEM`, `VASP_SHMEM_BCAST`,
     `VASP_SHMEM_RPROJ`).
+- **ELPA OpenMP decoupling** (`vasp+openmp` no longer forces `elpa+openmp`):
+  `vasp+openmp` may link either flavor — `FindELPA.cmake` prefers `elpa_openmp`
+  and falls back to serial with a warning; the Makefile builder picks the lib/
+  module name from elpa's own variant. Only `vasp~openmp` forces `elpa~openmp`
+  (CMake finder searches just the serial flavor there; a SINGLE MPI session
+  would limit ELPA's OpenMP to 1 thread anyway).
+- **`mpi_thread_serialized_661.patch`** (`when="@6.6.1 +openmp ^elpa+openmp"`):
+  VASP CPU OpenMP builds request `MPI_Init_thread(MPI_THREAD_SINGLE)`; ELPA's
+  hybrid kernels need `>= MPI_THREAD_SERIALIZED`, else they self-limit OpenMP
+  to 1 thread (benign `elpa_setup` warning). Patch flips the request (and the
+  assert, `/=`→`<`) to SERIALIZED so a threaded ELPA can use its OpenMP threads
+  under VASP. Apply criteria: both VASP and ELPA OpenMP.
+  **Gotcha: the `when=` spec MUST be space-separated** (`@6.6.1 +openmp
+  ^elpa+openmp`). The no-space form `@6.6.1+openmp` parses fine and even passes
+  post-hoc `spec.satisfies()`, but the solver-side condition translation
+  silently drops the patch (spack 2.5, observed 2026-11-01; all 104 builtin
+  precedents use space-separated forms).
 
 ## Conventions
 

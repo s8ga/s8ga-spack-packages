@@ -125,6 +125,13 @@ class Vasp(MakefilePackage, CMakePackage, CudaPackage):
     # ------------------------------------------------------------------
     patch("WANNIER90_WIN_MAXLEN_fix.patch", when="@6.2.0: +wannier90")
     patch("pot_electrostat_fix.patch", when="@6.6.0")
+    # Request MPI_THREAD_SERIALIZED instead of SINGLE when both VASP and its
+    # ELPA are OpenMP builds: ELPA's hybrid kernels may issue MPI calls from
+    # OpenMP threads, which the MPI standard only permits at >= SERIALIZED,
+    # so on a SINGLE session ELPA self-limits its OpenMP to 1 thread (benign
+    # warning from elpa_setup). Patch lives in the _OPENMP branch of
+    # src/mpi.F; the level assert is relaxed from /= to < SERIALIZED.
+    patch("mpi_thread_serialized_661.patch", when="@6.6.1 +openmp ^elpa+openmp")
 
     # ------------------------------------------------------------------
     # Dependencies
@@ -169,11 +176,16 @@ class Vasp(MakefilePackage, CMakePackage, CudaPackage):
         depends_on("dftd4 build_system=cmake", when="+dftd4")
         depends_on("simple-dftd3 build_system=cmake", when="+sdftd3")
 
-    # ELPA (VASP requires >= 2021.05.001 API; keep ~cuda on CPU builds)
-    depends_on("elpa@2021.05.001:+openmp~cuda", when="+elpa+openmp~cuda")
-    depends_on("elpa@2021.05.001:~openmp~cuda", when="+elpa~openmp~cuda")
-    depends_on("elpa@2021.05.001:+openmp+cuda", when="+elpa+openmp+cuda")
-    depends_on("elpa@2021.05.001:~openmp+cuda", when="+elpa~openmp+cuda")
+    # ELPA (VASP requires >= 2021.05.001 API; keep ~cuda on CPU builds).
+    # OpenMP is decoupled: vasp+openmp may link either elpa flavor
+    # (FindELPA.cmake prefers elpa_openmp and falls back to serial with a
+    # warning). Only vasp~openmp forces elpa~openmp: the CMake finder
+    # searches just the serial flavor there, and a SINGLE MPI session would
+    # limit ELPA's OpenMP to 1 thread anyway.
+    depends_on("elpa@2021.05.001:", when="+elpa")
+    depends_on("elpa~openmp", when="+elpa~openmp")
+    depends_on("elpa~cuda", when="+elpa~cuda")
+    depends_on("elpa+cuda", when="+elpa+cuda")
 
     # libMBD: require static (~shared+static) + no MPI (VASP NEB correctness)
     depends_on("libmbd~shared+static~mpi build_system=cmake", when="+libmbd")
@@ -636,7 +648,8 @@ class MakefileBuilder(makefile.MakefileBuilder):
                 else elpa_prefix.lib
             )
 
-            lib_name = "elpa_openmp" if spec.satisfies("+openmp") else "elpa"
+            # follow ELPA's own OpenMP flavor (decoupled from vasp +openmp)
+            lib_name = "elpa_openmp" if spec["elpa"].satisfies("+openmp") else "elpa"
             llibs.extend([f"-L{elpa_lib}", f"-l{lib_name}"])
 
             incs.append(f"-I{elpa_prefix.include}")
